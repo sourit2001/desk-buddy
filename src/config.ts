@@ -1,4 +1,4 @@
-import { AppConfig, defaultConfig } from "./types";
+import { AppConfig, DesktopPet, defaultConfig, getActivePet } from "./types";
 import { isTauriRuntime } from "./tauriRuntime";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -6,7 +6,9 @@ const CONFIG_KEY = "desk-pet-config-v1";
 const CONFIG_EVENT = "desk-pet-config-updated";
 
 function mergeConfig(value: Partial<AppConfig>): AppConfig {
-  const petImages = value.petImages?.length ? value.petImages : value.petImageDataUrl ? [value.petImageDataUrl] : [];
+  const legacyImages = value.petImages?.length ? value.petImages : value.petImageDataUrl ? [value.petImageDataUrl] : [];
+  const pets = normalizePets(value, legacyImages);
+  const activePetId = pets.some((pet) => pet.id === value.activePetId) ? String(value.activePetId) : pets[0].id;
   const animation = { ...defaultConfig.animation, ...value.animation };
   if (animation.imageSwitchSeconds >= 3 && value.animation?.framePlayback === undefined) {
     animation.imageSwitchSeconds = defaultConfig.animation.imageSwitchSeconds;
@@ -15,15 +17,49 @@ function mergeConfig(value: Partial<AppConfig>): AppConfig {
     animation.imageSwitchSeconds = defaultConfig.animation.imageSwitchSeconds;
   }
 
-  return {
+  const nextConfig = {
     ...defaultConfig,
     ...value,
-    petImageDataUrl: petImages[0] ?? "",
-    petImages,
+    activePetId,
+    pets,
     window: { ...defaultConfig.window, ...value.window },
     animation,
     llm: { ...defaultConfig.llm, ...value.llm },
   };
+  const activePet = getActivePet(nextConfig);
+
+  return {
+    ...nextConfig,
+    petImageDataUrl: activePet.images[0] ?? "",
+    petImages: activePet.images,
+    petName: activePet.name,
+  };
+}
+
+function normalizePets(value: Partial<AppConfig>, legacyImages: string[]): DesktopPet[] {
+  if (value.pets?.length) {
+    const usedIds = new Set<string>();
+    return value.pets.map((pet, index) => {
+      const fallbackId = index === 0 ? "default" : `pet-${index + 1}`;
+      const rawId = typeof pet.id === "string" && pet.id.trim() ? pet.id.trim() : fallbackId;
+      const id = usedIds.has(rawId) ? `${rawId}-${index + 1}` : rawId;
+      usedIds.add(id);
+
+      return {
+        id,
+        name: typeof pet.name === "string" && pet.name.trim() ? pet.name.trim() : `桌宠 ${index + 1}`,
+        images: Array.isArray(pet.images) ? pet.images.filter(Boolean) : [],
+      };
+    });
+  }
+
+  return [
+    {
+      id: defaultConfig.activePetId,
+      name: value.petName?.trim() || defaultConfig.petName,
+      images: legacyImages,
+    },
+  ];
 }
 
 export function loadConfig(): AppConfig {
@@ -56,7 +92,12 @@ export async function saveConfig(config: AppConfig) {
   try {
     localStorage.setItem(CONFIG_KEY, JSON.stringify(nextConfig));
   } catch {
-    const lightweightConfig = { ...nextConfig, petImageDataUrl: "", petImages: [] };
+    const lightweightConfig = {
+      ...nextConfig,
+      petImageDataUrl: "",
+      petImages: [],
+      pets: nextConfig.pets.map((pet) => ({ ...pet, images: [] })),
+    };
     localStorage.setItem(CONFIG_KEY, JSON.stringify(lightweightConfig));
   }
 

@@ -4,7 +4,7 @@ import { currentMonitor, getCurrentWindow, LogicalPosition, LogicalSize } from "
 import { MessageCircle, Power, Settings, Send, X } from "lucide-react";
 import { loadConfig, loadConfigAsync, subscribeConfig } from "./config";
 import { isTauriRuntime } from "./tauriRuntime";
-import { AppConfig, PetExpression, PetMood } from "./types";
+import { AppConfig, getActivePet, PetExpression, PetMood } from "./types";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -65,7 +65,8 @@ export function PetWindow() {
     };
   }, [config.window.roamEnabled, config.window.roamIntervalSeconds, config.window.roamDurationSeconds]);
 
-  const petImages = config.petImages?.length ? config.petImages : config.petImageDataUrl ? [config.petImageDataUrl] : [];
+  const activePet = getActivePet(config);
+  const petImages = activePet.images;
 
   useEffect(() => {
     if (imageIndex >= petImages.length) setImageIndex(0);
@@ -321,7 +322,7 @@ export function PetWindow() {
               key={`${imageIndex}-${currentPetImage.length}`}
               className="pet-image"
               src={currentPetImage}
-              alt={config.petName}
+              alt={activePet.name}
               draggable={false}
             />
             {config.animation.expressionEffects && expression !== "neutral" && (
@@ -346,7 +347,7 @@ export function PetWindow() {
             autoFocus
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            placeholder={config.llm.apiKey ? "和桌宠说点什么" : "先在设置里配置 API Key"}
+            placeholder={config.llm.apiKey ? `和 ${activePet.name} 说点什么` : "先在设置里配置 API Key"}
           />
           <button className="icon-button send" type="submit" title="发送" disabled={!config.llm.apiKey || !input.trim()}>
             <Send size={16} />

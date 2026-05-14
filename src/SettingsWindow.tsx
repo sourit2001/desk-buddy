@@ -1,17 +1,18 @@
 import { ChangeEvent, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Eye, ImagePlus, MonitorUp, Save, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Eye, ImagePlus, MonitorUp, Plus, Save, SlidersHorizontal, Trash2 } from "lucide-react";
 import { loadConfig, loadConfigAsync, saveConfig } from "./config";
 import { isTauriRuntime } from "./tauriRuntime";
-import { AppConfig } from "./types";
+import { AppConfig, DesktopPet, getActivePet } from "./types";
 
 export function SettingsWindow() {
   const [config, setConfig] = useState<AppConfig>(() => loadConfig());
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [previewIndex, setPreviewIndex] = useState(0);
-  const petImages = config.petImages?.length ? config.petImages : config.petImageDataUrl ? [config.petImageDataUrl] : [];
+  const activePet = getActivePet(config);
+  const petImages = activePet.images;
 
   useEffect(() => {
     loadConfigAsync().then(setConfig).catch((error) => setSaveError(String(error)));
@@ -37,6 +38,47 @@ export function SettingsWindow() {
     setSaveError("");
   }
 
+  function syncActivePet(nextConfig: AppConfig, pet: DesktopPet): AppConfig {
+    return {
+      ...nextConfig,
+      activePetId: pet.id,
+      petName: pet.name,
+      petImages: pet.images,
+      petImageDataUrl: pet.images[0] ?? "",
+    };
+  }
+
+  function updatePet(nextPet: DesktopPet) {
+    const nextPets = config.pets.map((pet) => (pet.id === nextPet.id ? nextPet : pet));
+    updateConfig(syncActivePet({ ...config, pets: nextPets }, nextPet));
+  }
+
+  function selectPet(petId: string) {
+    const nextPet = config.pets.find((pet) => pet.id === petId);
+    if (nextPet) updateConfig(syncActivePet(config, nextPet));
+    setPreviewIndex(0);
+  }
+
+  function createPet() {
+    const nextPet: DesktopPet = {
+      id: `pet-${Date.now()}`,
+      name: `桌宠 ${config.pets.length + 1}`,
+      images: [],
+    };
+    updateConfig(syncActivePet({ ...config, pets: [...config.pets, nextPet] }, nextPet));
+    setPreviewIndex(0);
+  }
+
+  function deleteActivePet() {
+    if (config.pets.length <= 1) return;
+
+    const activeIndex = config.pets.findIndex((pet) => pet.id === activePet.id);
+    const nextPets = config.pets.filter((pet) => pet.id !== activePet.id);
+    const nextPet = nextPets[Math.max(0, activeIndex - 1)] ?? nextPets[0];
+    updateConfig(syncActivePet({ ...config, pets: nextPets }, nextPet));
+    setPreviewIndex(0);
+  }
+
   function updateImages(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
     if (!files.length) return;
@@ -52,14 +94,14 @@ export function SettingsWindow() {
       ),
     ).then((images) => {
       const nextImages = [...petImages, ...images];
-      updateConfig({ ...config, petImageDataUrl: nextImages[0] ?? "", petImages: nextImages });
+      updatePet({ ...activePet, images: nextImages });
       event.target.value = "";
     });
   }
 
   function removeImage(index: number) {
     const nextImages = petImages.filter((_, imageIndex) => imageIndex !== index);
-    updateConfig({ ...config, petImageDataUrl: nextImages[0] ?? "", petImages: nextImages });
+    updatePet({ ...activePet, images: nextImages });
   }
 
   async function persist() {
@@ -110,9 +152,34 @@ export function SettingsWindow() {
             <ImagePlus size={18} />
             形象
           </h2>
+          <div className="pet-manager">
+            <div className="pet-list" aria-label="桌宠列表">
+              {config.pets.map((pet) => (
+                <button
+                  className={`pet-tab ${pet.id === activePet.id ? "active" : ""}`}
+                  type="button"
+                  key={pet.id}
+                  onClick={() => selectPet(pet.id)}
+                >
+                  <span>{pet.name}</span>
+                  <small>{pet.images.length} 张</small>
+                </button>
+              ))}
+            </div>
+            <div className="pet-manager-actions">
+              <button className="ghost-button compact" type="button" onClick={createPet}>
+                <Plus size={15} />
+                新增
+              </button>
+              <button className="ghost-button compact danger-text" type="button" onClick={deleteActivePet} disabled={config.pets.length <= 1}>
+                <Trash2 size={15} />
+                删除
+              </button>
+            </div>
+          </div>
           <label className="field">
-            <span>名称</span>
-            <input value={config.petName} onChange={(event) => updateConfig({ ...config, petName: event.target.value })} />
+            <span>当前宠物名称</span>
+            <input value={activePet.name} onChange={(event) => updatePet({ ...activePet, name: event.target.value })} />
           </label>
           <div className="image-toolbar">
             <label className="primary-button file-button">
@@ -124,7 +191,7 @@ export function SettingsWindow() {
               <button
                 className="ghost-button"
                 type="button"
-                onClick={() => updateConfig({ ...config, petImageDataUrl: "", petImages: [] })}
+                onClick={() => updatePet({ ...activePet, images: [] })}
               >
                 清空
               </button>

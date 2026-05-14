@@ -1,7 +1,15 @@
 export type PetMood = "idle" | "thinking" | "speaking" | "clicked" | "stretch" | "wiggle" | "hop";
 export type PetExpression = "neutral" | "happy" | "curious" | "sleepy" | "surprised" | "shy";
 
+export type DesktopPet = {
+  id: string;
+  name: string;
+  images: string[];
+};
+
 export type AppConfig = {
+  activePetId: string;
+  pets: DesktopPet[];
   petImageDataUrl: string;
   petImages: string[];
   petName: string;
@@ -30,6 +38,8 @@ export type AppConfig = {
 };
 
 export const defaultConfig: AppConfig = {
+  activePetId: "default",
+  pets: [{ id: "default", name: "桌宠", images: [] }],
   petImageDataUrl: "",
   petImages: [],
   petName: "桌宠",
@@ -56,3 +66,7 @@ export const defaultConfig: AppConfig = {
     systemPrompt: "你是一个温和、简洁、会陪伴用户的桌面宠物。回答要短，像聊天一样自然。",
   },
 };
+
+export function getActivePet(config: AppConfig): DesktopPet {
+  return config.pets.find((pet) => pet.id === config.activePetId) ?? config.pets[0] ?? defaultConfig.pets[0];
+}

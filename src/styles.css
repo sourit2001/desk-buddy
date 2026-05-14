@@ -29,6 +29,11 @@ button {
   cursor: pointer;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .pet-shell {
   width: 100vw;
   height: 100vh;
@@ -535,6 +540,59 @@ button {
   margin-bottom: 12px;
 }
 
+.pet-manager {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.pet-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  gap: 8px;
+}
+
+.pet-tab {
+  min-width: 0;
+  min-height: 58px;
+  border: 1px solid #d7dfd5;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: grid;
+  gap: 3px;
+  justify-items: start;
+  text-align: left;
+  color: #26352d;
+  background: #fbfcfa;
+}
+
+.pet-tab span {
+  width: 100%;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pet-tab small {
+  color: #627168;
+  font-size: 12px;
+}
+
+.pet-tab.active {
+  border-color: #4d8a6b;
+  color: #173f2b;
+  background: #eef7f1;
+  box-shadow: 0 0 0 3px rgba(77, 138, 107, 0.12);
+}
+
+.pet-manager-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .upload-box {
   position: relative;
   height: 210px;
@@ -657,6 +715,15 @@ button {
   color: #26352d;
   border-color: #d7dfd5;
   background: #ffffff;
+}
+
+.ghost-button.compact {
+  min-height: 34px;
+  padding: 0 11px;
+}
+
+.ghost-button.danger-text {
+  color: #8f1d1d;
 }
 
 .ghost-button svg {
