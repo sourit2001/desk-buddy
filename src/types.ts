@@ -1,10 +1,13 @@
 export type PetMood = "idle" | "thinking" | "speaking" | "clicked" | "stretch" | "wiggle" | "hop";
 export type PetExpression = "neutral" | "happy" | "curious" | "sleepy" | "surprised" | "shy";
+export type PetPersonality = "gentle" | "lively" | "cool" | "clingy";
 
 export type DesktopPet = {
   id: string;
   name: string;
   images: string[];
+  personality: PetPersonality;
+  catchphrase: string;
 };
 
 export type AppConfig = {
@@ -43,7 +46,7 @@ export type AppConfig = {
 
 export const defaultConfig: AppConfig = {
   activePetId: "default",
-  pets: [{ id: "default", name: "桌宠", images: [] }],
+  pets: [{ id: "default", name: "桌宠", images: [], personality: "gentle", catchphrase: "" }],
   petImageDataUrl: "",
   petImages: [],
   petName: "桌宠",

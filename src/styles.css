@@ -21,6 +21,7 @@ body,
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -57,11 +58,59 @@ button:disabled {
   display: flex;
   gap: 6px;
   opacity: 0;
-  transition: opacity 160ms ease;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
 }
 
 .pet-shell:hover .pet-actions {
   opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.pet-status {
+  position: absolute;
+  z-index: 19;
+  left: 10px;
+  bottom: 10px;
+  max-width: calc(100vw - 20px);
+  border: 1px solid rgba(19, 33, 25, 0.12);
+  border-radius: 8px;
+  padding: 7px 9px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #18251e;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(12px);
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity 160ms ease,
+    transform 160ms ease;
+}
+
+.pet-shell:hover .pet-status {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.pet-status strong,
+.pet-status span {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.pet-status strong {
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .icon-button {
@@ -99,8 +148,8 @@ button:disabled {
   z-index: 15;
   left: 16px;
   right: 16px;
-  top: 12px;
-  max-height: 96px;
+  top: 48px;
+  max-height: 86px;
   overflow: hidden;
   padding: 10px 12px;
   border: 1px solid rgba(29, 43, 35, 0.14);
@@ -428,6 +477,39 @@ button:disabled {
   background: transparent;
 }
 
+.pet-menu {
+  position: absolute;
+  z-index: 40;
+  width: 132px;
+  border: 1px solid rgba(19, 33, 25, 0.14);
+  border-radius: 8px;
+  padding: 6px;
+  display: grid;
+  gap: 4px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(14px);
+}
+
+.pet-menu button {
+  width: 100%;
+  min-height: 32px;
+  border: 0;
+  border-radius: 7px;
+  padding: 0 9px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #18251e;
+  background: transparent;
+  font-size: 13px;
+  text-align: left;
+}
+
+.pet-menu button:hover {
+  background: #eef7f1;
+}
+
 .settings-shell {
   min-height: 100vh;
   padding: 24px;
@@ -511,6 +593,7 @@ button:disabled {
 }
 
 .field input,
+.field select,
 .field textarea {
   width: 100%;
   border: 1px solid #d7dfd5;
@@ -522,6 +605,7 @@ button:disabled {
 }
 
 .field input:focus,
+.field select:focus,
 .field textarea:focus {
   border-color: #4d8a6b;
   box-shadow: 0 0 0 3px rgba(77, 138, 107, 0.14);

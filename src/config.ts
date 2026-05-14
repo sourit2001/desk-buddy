@@ -50,6 +50,8 @@ function normalizePets(value: Partial<AppConfig>, legacyImages: string[]): Deskt
         id,
         name: typeof pet.name === "string" && pet.name.trim() ? pet.name.trim() : `桌宠 ${index + 1}`,
         images: Array.isArray(pet.images) ? pet.images.filter(Boolean) : [],
+        personality: pet.personality ?? defaultConfig.pets[0].personality,
+        catchphrase: typeof pet.catchphrase === "string" ? pet.catchphrase : "",
       };
     });
   }
@@ -59,6 +61,8 @@ function normalizePets(value: Partial<AppConfig>, legacyImages: string[]): Deskt
       id: defaultConfig.activePetId,
       name: value.petName?.trim() || defaultConfig.petName,
       images: legacyImages,
+      personality: defaultConfig.pets[0].personality,
+      catchphrase: "",
     },
   ];
 }

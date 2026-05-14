@@ -5,7 +5,14 @@ import { Eye, ImagePlus, MonitorUp, Plus, Save, SlidersHorizontal, Trash2 } from
 import { loadConfig, loadConfigAsync, saveConfig } from "./config";
 import { readFileAsDataUrl, removeImageBackground } from "./imageCutout";
 import { isTauriRuntime } from "./tauriRuntime";
-import { AppConfig, DesktopPet, getActivePet } from "./types";
+import { AppConfig, DesktopPet, getActivePet, PetPersonality } from "./types";
+
+const personalityOptions: Array<{ value: PetPersonality; label: string }> = [
+  { value: "gentle", label: "温和" },
+  { value: "lively", label: "活泼" },
+  { value: "cool", label: "酷酷的" },
+  { value: "clingy", label: "黏人" },
+];
 
 export function SettingsWindow() {
   const [config, setConfig] = useState<AppConfig>(() => loadConfig());
@@ -66,6 +73,8 @@ export function SettingsWindow() {
       id: `pet-${Date.now()}`,
       name: `桌宠 ${config.pets.length + 1}`,
       images: [],
+      personality: "gentle",
+      catchphrase: "",
     };
     updateConfig(syncActivePet({ ...config, pets: [...config.pets, nextPet] }, nextPet));
     setPreviewIndex(0);
@@ -188,6 +197,29 @@ export function SettingsWindow() {
             <span>当前宠物名称</span>
             <input value={activePet.name} onChange={(event) => updatePet({ ...activePet, name: event.target.value })} />
           </label>
+          <div className="split-fields">
+            <label className="field">
+              <span>性格</span>
+              <select
+                value={activePet.personality}
+                onChange={(event) => updatePet({ ...activePet, personality: event.target.value as PetPersonality })}
+              >
+                {personalityOptions.map((option) => (
+                  <option value={option.value} key={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>口头禅</span>
+              <input
+                value={activePet.catchphrase}
+                placeholder="可选"
+                onChange={(event) => updatePet({ ...activePet, catchphrase: event.target.value })}
+              />
+            </label>
+          </div>
           <label className="check-row">
             <input
               type="checkbox"
