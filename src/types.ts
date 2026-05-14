@@ -29,6 +29,10 @@ export type AppConfig = {
     framePlayback: boolean;
     expressionEffects: boolean;
   };
+  imageProcessing: {
+    removeBackground: boolean;
+    backgroundTolerance: number;
+  };
   llm: {
     baseUrl: string;
     apiKey: string;
@@ -58,6 +62,10 @@ export const defaultConfig: AppConfig = {
     imageSwitchSeconds: 1.2,
     framePlayback: true,
     expressionEffects: true,
+  },
+  imageProcessing: {
+    removeBackground: false,
+    backgroundTolerance: 42,
   },
   llm: {
     baseUrl: "https://api.openai.com/v1",

@@ -24,6 +24,7 @@ function mergeConfig(value: Partial<AppConfig>): AppConfig {
     pets,
     window: { ...defaultConfig.window, ...value.window },
     animation,
+    imageProcessing: { ...defaultConfig.imageProcessing, ...value.imageProcessing },
     llm: { ...defaultConfig.llm, ...value.llm },
   };
   const activePet = getActivePet(nextConfig);

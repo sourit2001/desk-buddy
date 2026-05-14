@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Eye, ImagePlus, MonitorUp, Plus, Save, SlidersHorizontal, Trash2 } from "lucide-react";
 import { loadConfig, loadConfigAsync, saveConfig } from "./config";
+import { readFileAsDataUrl, removeImageBackground } from "./imageCutout";
 import { isTauriRuntime } from "./tauriRuntime";
 import { AppConfig, DesktopPet, getActivePet } from "./types";
 
@@ -10,6 +11,7 @@ export function SettingsWindow() {
   const [config, setConfig] = useState<AppConfig>(() => loadConfig());
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [processingImages, setProcessingImages] = useState(false);
   const [previewIndex, setPreviewIndex] = useState(0);
   const activePet = getActivePet(config);
   const petImages = activePet.images;
@@ -79,24 +81,29 @@ export function SettingsWindow() {
     setPreviewIndex(0);
   }
 
-  function updateImages(event: ChangeEvent<HTMLInputElement>) {
+  async function updateImages(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
     if (!files.length) return;
 
-    Promise.all(
-      files.map(
-        (file) =>
-          new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(String(reader.result ?? ""));
-            reader.readAsDataURL(file);
-          }),
-      ),
-    ).then((images) => {
+    setProcessingImages(true);
+    setSaveError("");
+
+    try {
+      const images = await Promise.all(
+        files.map(async (file) => {
+          const dataUrl = await readFileAsDataUrl(file);
+          if (!config.imageProcessing.removeBackground) return dataUrl;
+          return removeImageBackground(dataUrl, config.imageProcessing.backgroundTolerance);
+        }),
+      );
       const nextImages = [...petImages, ...images];
       updatePet({ ...activePet, images: nextImages });
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setProcessingImages(false);
       event.target.value = "";
-    });
+    }
   }
 
   function removeImage(index: number) {
@@ -181,11 +188,41 @@ export function SettingsWindow() {
             <span>当前宠物名称</span>
             <input value={activePet.name} onChange={(event) => updatePet({ ...activePet, name: event.target.value })} />
           </label>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={config.imageProcessing.removeBackground}
+              onChange={(event) =>
+                updateConfig({
+                  ...config,
+                  imageProcessing: { ...config.imageProcessing, removeBackground: event.target.checked },
+                })
+              }
+            />
+            上传时自动抠图
+          </label>
+          <label className="field">
+            <span>抠图容差</span>
+            <input
+              type="range"
+              min={12}
+              max={96}
+              step={2}
+              value={config.imageProcessing.backgroundTolerance}
+              disabled={!config.imageProcessing.removeBackground}
+              onChange={(event) =>
+                updateConfig({
+                  ...config,
+                  imageProcessing: { ...config.imageProcessing, backgroundTolerance: Number(event.target.value) },
+                })
+              }
+            />
+          </label>
           <div className="image-toolbar">
             <label className="primary-button file-button">
               <ImagePlus size={16} />
-              添加图片
-              <input type="file" accept="image/png" multiple onChange={updateImages} />
+              {processingImages ? "处理中" : "添加图片"}
+              <input type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={updateImages} disabled={processingImages} />
             </label>
             {petImages.length > 0 && (
               <button
@@ -201,7 +238,7 @@ export function SettingsWindow() {
             {petImages[previewIndex] ? (
               <img key={`${previewIndex}-${petImages[previewIndex].length}`} src={petImages[previewIndex]} alt="预览" />
             ) : (
-              <span>选择一个或多个透明 PNG</span>
+              <span>{config.imageProcessing.removeBackground ? "选择普通图片，上传时自动抠图" : "选择透明 PNG，或打开自动抠图"}</span>
             )}
           </div>
           {petImages.length > 0 && (
