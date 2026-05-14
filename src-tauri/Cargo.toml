@@ -1,0 +1,20 @@
+[package]
+name = "desk-pet"
+version = "0.1.0"
+description = "A lightweight desktop pet"
+authors = ["desk-pet"]
+edition = "2021"
+
+[lib]
+name = "desk_pet_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.6.1", features = [] }
+
+[dependencies]
+reqwest = { version = "=0.12.9", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tauri = { version = "=2.11.1", features = ["macos-private-api"] }
+thiserror = "2.0"
