@@ -1,11 +1,23 @@
-export type PetMood = "idle" | "thinking" | "speaking" | "clicked" | "stretch" | "wiggle" | "hop";
+export type PetMood = "idle" | "thinking" | "speaking" | "clicked" | "stretch" | "wiggle" | "hop" | "walk" | "greet" | "nod";
 export type PetExpression = "neutral" | "happy" | "curious" | "sleepy" | "surprised" | "shy";
 export type PetPersonality = "gentle" | "lively" | "cool" | "clingy";
+export type RoamMode = "anywhere" | "edges" | "topBottom" | "leftRight" | "top" | "bottom" | "left" | "right" | "middle";
+export type PetDisplayMode = "image" | "mmd";
+export type MmdMaterialMode = "debug" | "solid" | "texture";
 
 export type DesktopPet = {
   id: string;
   name: string;
   images: string[];
+  displayMode: PetDisplayMode;
+  mmdModelDataUrl: string;
+  mmdModelPath: string;
+  mmdModelName: string;
+  mmdMotionDataUrl: string;
+  mmdMotionPath: string;
+  mmdMotionName: string;
+  mmdMaterialMode: MmdMaterialMode;
+  mmdScale: number;
   personality: PetPersonality;
   catchphrase: string;
 };
@@ -21,6 +33,7 @@ export type AppConfig = {
     height: number;
     alwaysOnTop: boolean;
     roamEnabled: boolean;
+    roamMode: RoamMode;
     roamIntervalSeconds: number;
     roamDurationSeconds: number;
   };
@@ -46,7 +59,24 @@ export type AppConfig = {
 
 export const defaultConfig: AppConfig = {
   activePetId: "default",
-  pets: [{ id: "default", name: "桌宠", images: [], personality: "gentle", catchphrase: "" }],
+  pets: [
+    {
+      id: "default",
+      name: "桌宠",
+      images: [],
+      displayMode: "image",
+      mmdModelDataUrl: "",
+      mmdModelPath: "",
+      mmdModelName: "",
+      mmdMotionDataUrl: "",
+      mmdMotionPath: "",
+      mmdMotionName: "",
+      mmdMaterialMode: "debug",
+      mmdScale: 1,
+      personality: "gentle",
+      catchphrase: "",
+    },
+  ],
   petImageDataUrl: "",
   petImages: [],
   petName: "桌宠",
@@ -55,6 +85,7 @@ export const defaultConfig: AppConfig = {
     height: 320,
     alwaysOnTop: true,
     roamEnabled: false,
+    roamMode: "edges",
     roamIntervalSeconds: 12,
     roamDurationSeconds: 4,
   },

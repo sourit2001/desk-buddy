@@ -541,6 +541,7 @@ dependencies = [
 name = "desk-pet"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "reqwest 0.12.9",
  "serde",
  "serde_json",

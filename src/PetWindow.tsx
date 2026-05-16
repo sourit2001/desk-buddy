@@ -1,10 +1,11 @@
 import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { currentMonitor, getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
-import { Heart, MessageCircle, Moon, Power, Send, Settings, Sparkles, Utensils, X } from "lucide-react";
+import { Footprints, Hand, Heart, MessageCircle, Moon, Power, Send, Settings, Smile, Sparkles, Utensils, X } from "lucide-react";
 import { loadConfig, loadConfigAsync, subscribeConfig } from "./config";
 import { isTauriRuntime } from "./tauriRuntime";
-import { AppConfig, getActivePet, PetExpression, PetMood } from "./types";
+import { MmdPet } from "./MmdPet";
+import { AppConfig, getActivePet, PetExpression, PetMood, RoamMode } from "./types";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -22,10 +23,33 @@ type PetMenu = {
   y: number;
 };
 
+type RoamBounds = {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+};
+
+type RoamTarget = {
+  x: number;
+  y: number;
+};
+
+type RoamEdge = "top" | "right" | "bottom" | "left";
+
 const defaultPetState: PetRuntimeState = {
   affection: 35,
   energy: 72,
   lastInteractionAt: Date.now(),
+};
+
+const moodDurations: Partial<Record<PetMood, number>> = {
+  stretch: 1300,
+  wiggle: 900,
+  hop: 900,
+  walk: 1600,
+  greet: 1250,
+  nod: 1050,
 };
 
 const personalityNames = {
@@ -61,6 +85,200 @@ function clamp(value: number, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
 }
 
+function randomBetween(min: number, max: number) {
+  return min + Math.random() * Math.max(1, max - min);
+}
+
+function pickFarCoordinate(min: number, max: number, current: number) {
+  const span = Math.max(1, max - min);
+  const midpoint = min + span / 2;
+  const targetMin = current < midpoint ? min + span * 0.72 : min;
+  const targetMax = current < midpoint ? max : max - span * 0.72;
+  return randomBetween(targetMin, targetMax);
+}
+
+function distanceBetween(from: RoamTarget, to: RoamTarget) {
+  return Math.hypot(to.x - from.x, to.y - from.y);
+}
+
+function nearestEdge(point: RoamTarget, bounds: RoamBounds): RoamEdge {
+  const distances: Array<{ edge: RoamEdge; distance: number }> = [
+    { edge: "top", distance: Math.abs(point.y - bounds.top) },
+    { edge: "right", distance: Math.abs(point.x - bounds.right) },
+    { edge: "bottom", distance: Math.abs(point.y - bounds.bottom) },
+    { edge: "left", distance: Math.abs(point.x - bounds.left) },
+  ];
+  return distances.sort((a, b) => a.distance - b.distance)[0].edge;
+}
+
+function pointOnEdge(edge: RoamEdge, point: RoamTarget, bounds: RoamBounds): RoamTarget {
+  if (edge === "top") return { x: clamp(point.x, bounds.left, bounds.right), y: bounds.top };
+  if (edge === "right") return { x: bounds.right, y: clamp(point.y, bounds.top, bounds.bottom) };
+  if (edge === "bottom") return { x: clamp(point.x, bounds.left, bounds.right), y: bounds.bottom };
+  return { x: bounds.left, y: clamp(point.y, bounds.top, bounds.bottom) };
+}
+
+function perimeterLength(bounds: RoamBounds) {
+  return Math.max(1, 2 * (bounds.right - bounds.left + bounds.bottom - bounds.top));
+}
+
+function edgePointToPerimeter(point: RoamTarget, bounds: RoamBounds) {
+  const width = bounds.right - bounds.left;
+  const height = bounds.bottom - bounds.top;
+  const edge = nearestEdge(point, bounds);
+
+  if (edge === "top") return clamp(point.x, bounds.left, bounds.right) - bounds.left;
+  if (edge === "right") return width + clamp(point.y, bounds.top, bounds.bottom) - bounds.top;
+  if (edge === "bottom") return width + height + bounds.right - clamp(point.x, bounds.left, bounds.right);
+  return width + height + width + bounds.bottom - clamp(point.y, bounds.top, bounds.bottom);
+}
+
+function perimeterToPoint(distance: number, bounds: RoamBounds): RoamTarget {
+  const width = bounds.right - bounds.left;
+  const height = bounds.bottom - bounds.top;
+  const perimeter = perimeterLength(bounds);
+  const position = ((distance % perimeter) + perimeter) % perimeter;
+
+  if (position <= width) return { x: bounds.left + position, y: bounds.top };
+  if (position <= width + height) return { x: bounds.right, y: bounds.top + position - width };
+  if (position <= width + height + width) return { x: bounds.right - (position - width - height), y: bounds.bottom };
+  return { x: bounds.left, y: bounds.bottom - (position - width - height - width) };
+}
+
+function getEdgeRoamPath(start: RoamTarget, bounds: RoamBounds): RoamTarget[] {
+  const perimeter = perimeterLength(bounds);
+  const startOnEdge = pointOnEdge(nearestEdge(start, bounds), start, bounds);
+  const startDistance = edgePointToPerimeter(startOnEdge, bounds);
+  const targetDistance = startDistance + perimeter * randomBetween(0.48, 0.82);
+  const width = bounds.right - bounds.left;
+  const height = bounds.bottom - bounds.top;
+  const corners = [width, width + height, width + height + width, perimeter].map((corner) =>
+    corner <= startDistance ? corner + perimeter : corner,
+  );
+  const path = [startOnEdge];
+
+  corners
+    .filter((corner) => corner > startDistance && corner < targetDistance)
+    .forEach((corner) => path.push(perimeterToPoint(corner, bounds)));
+  path.push(perimeterToPoint(targetDistance, bounds));
+
+  return path;
+}
+
+function getHorizontalEdgeRoamPath(mode: Extract<RoamMode, "top" | "bottom" | "topBottom">, start: RoamTarget, bounds: RoamBounds) {
+  const currentEdge = Math.abs(start.y - bounds.top) <= Math.abs(start.y - bounds.bottom) ? "top" : "bottom";
+  const edge = mode === "topBottom" ? currentEdge : mode;
+  const startOnEdge = pointOnEdge(edge, start, bounds);
+
+  return [
+    startOnEdge,
+    {
+      x: pickFarCoordinate(bounds.left, bounds.right, startOnEdge.x),
+      y: edge === "top" ? bounds.top : bounds.bottom,
+    },
+  ];
+}
+
+function getVerticalEdgeRoamPath(mode: Extract<RoamMode, "left" | "right" | "leftRight">, start: RoamTarget, bounds: RoamBounds) {
+  const currentEdge = Math.abs(start.x - bounds.left) <= Math.abs(start.x - bounds.right) ? "left" : "right";
+  const edge = mode === "leftRight" ? currentEdge : mode;
+  const startOnEdge = pointOnEdge(edge, start, bounds);
+
+  return [
+    startOnEdge,
+    {
+      x: edge === "left" ? bounds.left : bounds.right,
+      y: pickFarCoordinate(bounds.top, bounds.bottom, startOnEdge.y),
+    },
+  ];
+}
+
+function getRoamTarget(mode: RoamMode, bounds: RoamBounds): RoamTarget {
+  const width = Math.max(1, bounds.right - bounds.left);
+  const height = Math.max(1, bounds.bottom - bounds.top);
+  const edgeBand = Math.min(90, Math.max(24, Math.min(width, height) * 0.14));
+  const middleBandTop = bounds.top + height * 0.38;
+  const middleBandBottom = bounds.top + height * 0.62;
+
+  if (mode === "middle") {
+    return {
+      x: randomBetween(bounds.left + width * 0.2, bounds.right - width * 0.2),
+      y: randomBetween(middleBandTop, middleBandBottom),
+    };
+  }
+
+  if (mode === "top" || mode === "bottom" || mode === "topBottom") {
+    const useTop = mode === "top" || (mode === "topBottom" && Math.random() < 0.5);
+    return {
+      x: randomBetween(bounds.left, bounds.right),
+      y: useTop ? randomBetween(bounds.top, bounds.top + edgeBand) : randomBetween(bounds.bottom - edgeBand, bounds.bottom),
+    };
+  }
+
+  if (mode === "left" || mode === "right" || mode === "leftRight") {
+    const useLeft = mode === "left" || (mode === "leftRight" && Math.random() < 0.5);
+    return {
+      x: useLeft ? randomBetween(bounds.left, bounds.left + edgeBand) : randomBetween(bounds.right - edgeBand, bounds.right),
+      y: randomBetween(bounds.top, bounds.bottom),
+    };
+  }
+
+  if (mode === "edges") {
+    const side = Math.floor(Math.random() * 4);
+    if (side === 0) return { x: randomBetween(bounds.left, bounds.right), y: randomBetween(bounds.top, bounds.top + edgeBand) };
+    if (side === 1) return { x: randomBetween(bounds.left, bounds.right), y: randomBetween(bounds.bottom - edgeBand, bounds.bottom) };
+    if (side === 2) return { x: randomBetween(bounds.left, bounds.left + edgeBand), y: randomBetween(bounds.top, bounds.bottom) };
+    return { x: randomBetween(bounds.right - edgeBand, bounds.right), y: randomBetween(bounds.top, bounds.bottom) };
+  }
+
+  return {
+    x: randomBetween(bounds.left, bounds.right),
+    y: randomBetween(bounds.top, bounds.bottom),
+  };
+}
+
+function getRoamPath(mode: RoamMode, bounds: RoamBounds, start: RoamTarget): RoamTarget[] {
+  const path =
+    mode === "edges"
+      ? getEdgeRoamPath(start, bounds)
+      : mode === "top" || mode === "bottom" || mode === "topBottom"
+        ? getHorizontalEdgeRoamPath(mode, start, bounds)
+        : mode === "left" || mode === "right" || mode === "leftRight"
+          ? getVerticalEdgeRoamPath(mode, start, bounds)
+        : [getRoamTarget(mode, bounds)];
+
+  return path.filter((point, index) => index === 0 || distanceBetween(path[index - 1], point) > 1);
+}
+
+function getPositionOnPath(start: RoamTarget, waypoints: RoamTarget[], progress: number): RoamTarget {
+  const points = [start, ...waypoints];
+  const lengths = points.slice(1).map((point, index) => distanceBetween(points[index], point));
+  const totalLength = lengths.reduce((sum, length) => sum + length, 0);
+  let travelled = totalLength * progress;
+
+  for (let index = 0; index < lengths.length; index += 1) {
+    const length = lengths[index];
+    if (travelled > length && index < lengths.length - 1) {
+      travelled -= length;
+      continue;
+    }
+
+    const from = points[index];
+    const to = points[index + 1];
+    const segmentProgress = length <= 0 ? 1 : clamp(travelled / length, 0, 1);
+    return {
+      x: from.x + (to.x - from.x) * segmentProgress,
+      y: from.y + (to.y - from.y) * segmentProgress,
+    };
+  }
+
+  return waypoints[waypoints.length - 1] ?? start;
+}
+
+function shouldUseScreenEdgeBounds(mode: RoamMode) {
+  return mode === "edges" || mode === "topBottom" || mode === "leftRight" || mode === "top" || mode === "bottom" || mode === "left" || mode === "right";
+}
+
 export function PetWindow() {
   const [config, setConfig] = useState<AppConfig>(() => loadConfig());
   const [mood, setMood] = useState<PetMood>("idle");
@@ -80,6 +298,7 @@ export function PetWindow() {
   const composerOpenRef = useRef(false);
   const activePet = getActivePet(config);
   const petImages = activePet.images;
+  const isMmdMode = activePet.displayMode === "mmd";
 
   useEffect(() => {
     loadConfigAsync().then(setConfig).catch(() => undefined);
@@ -124,7 +343,7 @@ export function PetWindow() {
       window.clearTimeout(firstMove);
       window.clearInterval(interval);
     };
-  }, [config.window.roamEnabled, config.window.roamIntervalSeconds, config.window.roamDurationSeconds]);
+  }, [config.window.roamEnabled, config.window.roamIntervalSeconds, config.window.roamDurationSeconds, config.window.roamMode]);
 
   useEffect(() => {
     if (imageIndex >= petImages.length) setImageIndex(0);
@@ -168,12 +387,12 @@ export function PetWindow() {
   useEffect(() => {
     if (!config.animation.enabled || mood !== "idle") return;
 
-    const idleMoves: PetMood[] = ["stretch", "wiggle", "hop"];
+    const idleMoves: PetMood[] = ["stretch", "wiggle", "hop", "nod"];
     const timeout = window.setTimeout(
       () => {
         const nextMood = idleMoves[Math.floor(Math.random() * idleMoves.length)];
         setMood(nextMood);
-        interactionTimeoutRef.current = window.setTimeout(() => setMood("idle"), nextMood === "stretch" ? 1300 : 900);
+        interactionTimeoutRef.current = window.setTimeout(() => setMood("idle"), moodDurations[nextMood] ?? 900);
       },
       4200 + Math.random() * 4200,
     );
@@ -216,9 +435,10 @@ export function PetWindow() {
   );
 
   const currentPetImage = petImages[imageIndex] ?? "";
+  const hasPetVisual = isMmdMode || Boolean(currentPetImage);
 
   useEffect(() => {
-    if (!currentPetImage || composerOpen || mood !== "idle" || bubble) return;
+    if (!hasPetVisual || composerOpen || mood !== "idle" || bubble) return;
 
     const timeout = window.setTimeout(
       () => {
@@ -232,7 +452,7 @@ export function PetWindow() {
     );
 
     return () => window.clearTimeout(timeout);
-  }, [activePet.id, bubble, composerOpen, currentPetImage, mood, petState.affection, petState.energy]);
+  }, [activePet.id, bubble, composerOpen, currentPetImage, hasPetVisual, mood, petState.affection, petState.energy]);
 
   function commitPetState(updater: (state: PetRuntimeState) => PetRuntimeState) {
     setPetState((current) => {
@@ -247,7 +467,7 @@ export function PetWindow() {
     setBubble(text);
     setMood(nextMood);
     setExpression(nextExpression);
-    window.setTimeout(() => setMood("idle"), nextMood === "hop" ? 900 : 620);
+    window.setTimeout(() => setMood("idle"), moodDurations[nextMood] ?? 620);
     window.setTimeout(() => setExpression("neutral"), 1800);
   }
 
@@ -315,10 +535,26 @@ export function PetWindow() {
     );
   }
 
-  function runInteraction(kind: "pet" | "feed" | "nap" | "play" | "chat") {
+  function runInteraction(kind: "pet" | "feed" | "nap" | "play" | "chat" | "walk" | "greet" | "nod") {
     if (kind === "chat") {
       setPetMenu(null);
       setComposerOpen(true);
+      return;
+    }
+
+    if (kind === "walk" || kind === "greet" || kind === "nod") {
+      const action = {
+        walk: { text: "我走两步给你看。", expression: "curious" as PetExpression, mood: "walk" as PetMood, energy: -2 },
+        greet: { text: "嗨，我在这里。", expression: "happy" as PetExpression, mood: "greet" as PetMood, energy: -1 },
+        nod: { text: "嗯嗯。", expression: "happy" as PetExpression, mood: "nod" as PetMood, energy: 0 },
+      }[kind];
+
+      commitPetState((state) => ({
+        affection: clamp(state.affection + 1),
+        energy: clamp(state.energy + action.energy),
+        lastInteractionAt: Date.now(),
+      }));
+      interact(action.text, action.expression, action.mood);
       return;
     }
 
@@ -354,7 +590,7 @@ export function PetWindow() {
   }
 
   async function handlePetClick() {
-    if (!currentPetImage) {
+    if (!hasPetVisual) {
       await openSettings();
       return;
     }
@@ -391,13 +627,19 @@ export function PetWindow() {
     const monitorHeight = monitor.size.height / scaleFactor;
     const windowWidth = currentSize.width / scaleFactor;
     const windowHeight = currentSize.height / scaleFactor;
-    const margin = 28;
-    const maxX = Math.max(monitorLeft + margin, monitorLeft + monitorWidth - windowWidth - margin);
-    const maxY = Math.max(monitorTop + margin, monitorTop + monitorHeight - windowHeight - margin);
-    const targetX = monitorLeft + margin + Math.random() * Math.max(1, maxX - monitorLeft - margin);
-    const targetY = monitorTop + margin + Math.random() * Math.max(1, maxY - monitorTop - margin);
+    const margin = shouldUseScreenEdgeBounds(config.window.roamMode) ? 0 : 28;
+    const bounds: RoamBounds = {
+      left: monitorLeft + margin,
+      top: monitorTop + margin,
+      right: Math.max(monitorLeft + margin, monitorLeft + monitorWidth - windowWidth - margin),
+      bottom: Math.max(monitorTop + margin, monitorTop + monitorHeight - windowHeight - margin),
+    };
     const startX = currentPosition.x / scaleFactor;
     const startY = currentPosition.y / scaleFactor;
+    const start = { x: startX, y: startY };
+    const waypoints = getRoamPath(config.window.roamMode, bounds, start);
+    if (!waypoints.length) return;
+
     const duration = Math.max(1.2, config.window.roamDurationSeconds) * 1000;
     const startAt = performance.now();
 
@@ -411,9 +653,8 @@ export function PetWindow() {
 
       const progress = Math.min(1, (now - startAt) / duration);
       const eased = easeInOut(progress);
-      const nextX = startX + (targetX - startX) * eased;
-      const nextY = startY + (targetY - startY) * eased;
-      await appWindow.setPosition(new LogicalPosition(nextX, nextY));
+      const nextPosition = getPositionOnPath(start, waypoints, eased);
+      await appWindow.setPosition(new LogicalPosition(nextPosition.x, nextPosition.y));
 
       if (progress < 1) {
         window.requestAnimationFrame((time) => {
@@ -512,7 +753,20 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
         onClick={handlePetClick}
         title="左键摸摸，右键互动，按住拖动位置，双击设置"
       >
-        {currentPetImage ? (
+        {isMmdMode ? (
+          <MmdPet
+            modelDataUrl={activePet.mmdModelDataUrl}
+            modelPath={activePet.mmdModelPath}
+            motionDataUrl={activePet.mmdMotionDataUrl}
+            motionPath={activePet.mmdMotionPath}
+            motionName={activePet.mmdMotionName}
+            modelName={activePet.mmdModelName || activePet.mmdModelPath}
+            materialMode={activePet.mmdMaterialMode}
+            modelScale={activePet.mmdScale}
+            mood={mood}
+            intensity={config.animation.enabled ? config.animation.intensity : 0}
+          />
+        ) : currentPetImage ? (
           <>
             <img
               key={`${imageIndex}-${currentPetImage.length}`}
@@ -554,6 +808,18 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
           <button type="button" onClick={() => runInteraction("play")}>
             <Sparkles size={15} />
             玩一下
+          </button>
+          <button type="button" onClick={() => runInteraction("walk")}>
+            <Footprints size={15} />
+            走走路
+          </button>
+          <button type="button" onClick={() => runInteraction("greet")}>
+            <Hand size={15} />
+            打招呼
+          </button>
+          <button type="button" onClick={() => runInteraction("nod")}>
+            <Smile size={15} />
+            点点头
           </button>
           <button type="button" onClick={() => runInteraction("chat")}>
             <MessageCircle size={15} />

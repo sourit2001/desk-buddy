@@ -1,5 +1,10 @@
+use base64::{engine::general_purpose, Engine as _};
 use serde::{Deserialize, Serialize};
-use std::{fs, path::PathBuf};
+use std::{
+    fs,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 use thiserror::Error;
 
@@ -35,6 +40,12 @@ struct OpenAiChoice {
     message: ChatMessage,
 }
 
+#[derive(Debug, Serialize)]
+struct MmdAsset {
+    path: String,
+    file_name: String,
+}
+
 #[derive(Debug, Error)]
 enum AppError {
     #[error("Base URL、API Key 和 Model 都不能为空")]
@@ -67,6 +78,31 @@ fn config_path(app: &tauri::AppHandle) -> Result<PathBuf, AppError> {
     Ok(dir.join("config.json"))
 }
 
+fn sanitize_file_name(file_name: &str) -> String {
+    file_name
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('_')
+        .to_string()
+}
+
+fn decode_data_url(data_url: &str) -> Result<Vec<u8>, AppError> {
+    let encoded = data_url
+        .split_once(',')
+        .map(|(_, value)| value)
+        .ok_or_else(|| AppError::Config("模型数据格式错误".into()))?;
+    general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|error| AppError::Config(error.to_string()))
+}
+
 #[tauri::command]
 async fn load_config(app: tauri::AppHandle) -> Result<Option<serde_json::Value>, AppError> {
     let path = config_path(&app)?;
@@ -85,6 +121,39 @@ async fn save_config(app: tauri::AppHandle, config: serde_json::Value) -> Result
     let raw = serde_json::to_string_pretty(&config).map_err(|error| AppError::Config(error.to_string()))?;
     fs::write(path, raw).map_err(|error| AppError::Config(error.to_string()))?;
     Ok(())
+}
+
+#[tauri::command]
+async fn save_mmd_asset(app: tauri::AppHandle, file_name: String, data_url: String) -> Result<MmdAsset, AppError> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| AppError::Config(error.to_string()))?
+        .join("mmd");
+    fs::create_dir_all(&dir).map_err(|error| AppError::Config(error.to_string()))?;
+
+    let safe_name = sanitize_file_name(&file_name);
+    let safe_name = if safe_name.is_empty() { "model.zip".into() } else { safe_name };
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|error| AppError::Config(error.to_string()))?
+        .as_millis();
+    let path = dir.join(format!("{timestamp}-{safe_name}"));
+    fs::write(&path, decode_data_url(&data_url)?).map_err(|error| AppError::Config(error.to_string()))?;
+
+    Ok(MmdAsset {
+        path: path.to_string_lossy().to_string(),
+        file_name,
+    })
+}
+
+#[tauri::command]
+async fn read_mmd_asset(path: String) -> Result<String, AppError> {
+    let bytes = fs::read(path).map_err(|error| AppError::Config(error.to_string()))?;
+    Ok(format!(
+        "data:application/octet-stream;base64,{}",
+        general_purpose::STANDARD.encode(bytes)
+    ))
 }
 
 #[tauri::command]
@@ -181,6 +250,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_config,
             save_config,
+            save_mmd_asset,
+            read_mmd_asset,
             show_settings,
             show_pet,
             quit_app,

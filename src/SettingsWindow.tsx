@@ -5,13 +5,44 @@ import { Eye, ImagePlus, MonitorUp, Plus, Save, SlidersHorizontal, Trash2 } from
 import { loadConfig, loadConfigAsync, saveConfig } from "./config";
 import { readFileAsDataUrl, removeImageBackground } from "./imageCutout";
 import { isTauriRuntime } from "./tauriRuntime";
-import { AppConfig, DesktopPet, getActivePet, PetPersonality } from "./types";
+import { AppConfig, DesktopPet, getActivePet, MmdMaterialMode, PetDisplayMode, PetPersonality, RoamMode } from "./types";
 
 const personalityOptions: Array<{ value: PetPersonality; label: string }> = [
   { value: "gentle", label: "温和" },
   { value: "lively", label: "活泼" },
   { value: "cool", label: "酷酷的" },
   { value: "clingy", label: "黏人" },
+];
+
+const displayModeOptions: Array<{ value: PetDisplayMode; label: string }> = [
+  { value: "image", label: "图片桌宠" },
+  { value: "mmd", label: "MMD 模型" },
+];
+
+const mmdMaterialModeOptions: Array<{ value: MmdMaterialMode; label: string }> = [
+  { value: "debug", label: "调试材质" },
+  { value: "solid", label: "纯色材质" },
+  { value: "texture", label: "贴图材质" },
+];
+
+type MmdAsset = {
+  path: string;
+  fileName?: string;
+  file_name?: string;
+};
+
+function getMmdAssetFileName(asset: MmdAsset, fallback: string) {
+  return asset.fileName || asset.file_name || fallback;
+}
+
+const roamModeOptions: Array<{ value: RoamMode; label: string }> = [
+  { value: "edges", label: "屏幕四边" },
+  { value: "topBottom", label: "上下边缘" },
+  { value: "leftRight", label: "左右边缘" },
+  { value: "left", label: "左边缘" },
+  { value: "right", label: "右边缘" },
+  { value: "middle", label: "屏幕中间" },
+  { value: "anywhere", label: "全屏随机" },
 ];
 
 export function SettingsWindow() {
@@ -47,6 +78,20 @@ export function SettingsWindow() {
     setSaveError("");
   }
 
+  function updateConfigAndPersist(next: AppConfig) {
+    updateConfig(next);
+    saveConfig(next)
+      .then(() => {
+        setSaved(true);
+        setSaveError("");
+        window.setTimeout(() => setSaved(false), 1600);
+      })
+      .catch((error) => {
+        setSaved(false);
+        setSaveError(error instanceof Error ? error.message : String(error));
+      });
+  }
+
   function syncActivePet(nextConfig: AppConfig, pet: DesktopPet): AppConfig {
     return {
       ...nextConfig,
@@ -62,6 +107,11 @@ export function SettingsWindow() {
     updateConfig(syncActivePet({ ...config, pets: nextPets }, nextPet));
   }
 
+  function updatePetAndPersist(nextPet: DesktopPet) {
+    const nextPets = config.pets.map((pet) => (pet.id === nextPet.id ? nextPet : pet));
+    updateConfigAndPersist(syncActivePet({ ...config, pets: nextPets }, nextPet));
+  }
+
   function selectPet(petId: string) {
     const nextPet = config.pets.find((pet) => pet.id === petId);
     if (nextPet) updateConfig(syncActivePet(config, nextPet));
@@ -73,6 +123,15 @@ export function SettingsWindow() {
       id: `pet-${Date.now()}`,
       name: `桌宠 ${config.pets.length + 1}`,
       images: [],
+      displayMode: "image",
+      mmdModelDataUrl: "",
+      mmdModelPath: "",
+      mmdModelName: "",
+      mmdMotionDataUrl: "",
+      mmdMotionPath: "",
+      mmdMotionName: "",
+      mmdMaterialMode: "debug",
+      mmdScale: 1,
       personality: "gentle",
       catchphrase: "",
     };
@@ -118,6 +177,59 @@ export function SettingsWindow() {
   function removeImage(index: number) {
     const nextImages = petImages.filter((_, imageIndex) => imageIndex !== index);
     updatePet({ ...activePet, images: nextImages });
+  }
+
+  async function updateMmdModel(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      if (isTauriRuntime()) {
+        const asset = await invoke<MmdAsset>("save_mmd_asset", { fileName: file.name, dataUrl });
+        updatePetAndPersist({
+          ...activePet,
+          displayMode: "mmd",
+          mmdModelDataUrl: "",
+          mmdModelPath: asset.path,
+          mmdModelName: getMmdAssetFileName(asset, file.name),
+        });
+      } else {
+        updatePetAndPersist({ ...activePet, displayMode: "mmd", mmdModelDataUrl: dataUrl, mmdModelPath: "", mmdModelName: file.name });
+      }
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  async function updateMmdMotion(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      if (!file.name.toLowerCase().endsWith(".vmd")) {
+        throw new Error("动作文件请选择解压后的 .vmd，不要直接选择 zip。camera.vmd/カメラ.vmd 是镜头动作，通常不适合桌宠。");
+      }
+      const dataUrl = await readFileAsDataUrl(file);
+      if (isTauriRuntime()) {
+        const asset = await invoke<MmdAsset>("save_mmd_asset", { fileName: file.name, dataUrl });
+        updatePetAndPersist({
+          ...activePet,
+          displayMode: "mmd",
+          mmdMotionDataUrl: "",
+          mmdMotionPath: asset.path,
+          mmdMotionName: getMmdAssetFileName(asset, file.name),
+        });
+      } else {
+        updatePetAndPersist({ ...activePet, displayMode: "mmd", mmdMotionDataUrl: dataUrl, mmdMotionPath: "", mmdMotionName: file.name });
+      }
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+    } finally {
+      event.target.value = "";
+    }
   }
 
   async function persist() {
@@ -178,7 +290,7 @@ export function SettingsWindow() {
                   onClick={() => selectPet(pet.id)}
                 >
                   <span>{pet.name}</span>
-                  <small>{pet.images.length} 张</small>
+                  <small>{pet.displayMode === "mmd" ? pet.mmdModelName || "MMD" : `${pet.images.length} 张`}</small>
                 </button>
               ))}
             </div>
@@ -220,6 +332,83 @@ export function SettingsWindow() {
               />
             </label>
           </div>
+          <label className="field">
+            <span>显示模式</span>
+            <select
+              value={activePet.displayMode}
+              onChange={(event) => updatePetAndPersist({ ...activePet, displayMode: event.target.value as PetDisplayMode })}
+            >
+              {displayModeOptions.map((option) => (
+                <option value={option.value} key={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {activePet.displayMode === "mmd" && (
+            <div className="mmd-upload-panel">
+              <div className="image-toolbar">
+                <label className="primary-button file-button">
+                  <ImagePlus size={16} />
+                  选择模型包
+                  <input type="file" accept=".zip,.pmx,.pmd" onChange={updateMmdModel} />
+                </label>
+                <label className="ghost-button file-button">
+                  <ImagePlus size={16} />
+                  选择动作 .vmd
+                  <input type="file" accept=".vmd" onChange={updateMmdMotion} />
+                </label>
+              </div>
+              <div className="mmd-file-list">
+                <span>模型：{activePet.mmdModelName || "未选择，先显示 3D 预览"}</span>
+                <span>动作：{activePet.mmdMotionName || "未选择，将使用程序化轻动作"}</span>
+                <span>提示：先解压动作包，再选择角色动作 .vmd；不要选择 zip 或 camera.vmd。</span>
+              </div>
+              <label className="field">
+                <span>MMD 材质</span>
+                <select
+                  value={activePet.mmdMaterialMode}
+                  onChange={(event) => updatePetAndPersist({ ...activePet, mmdMaterialMode: event.target.value as MmdMaterialMode })}
+                >
+                  {mmdMaterialModeOptions.map((option) => (
+                    <option value={option.value} key={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>MMD 缩放：{activePet.mmdScale.toFixed(2)}x</span>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={1.8}
+                  step={0.05}
+                  value={activePet.mmdScale}
+                  onChange={(event) => updatePetAndPersist({ ...activePet, mmdScale: Number(event.target.value) })}
+                />
+              </label>
+              {(activePet.mmdModelDataUrl || activePet.mmdModelPath || activePet.mmdMotionDataUrl || activePet.mmdMotionPath) && (
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() =>
+                    updatePetAndPersist({
+                      ...activePet,
+                      mmdModelDataUrl: "",
+                      mmdModelPath: "",
+                      mmdModelName: "",
+                      mmdMotionDataUrl: "",
+                      mmdMotionPath: "",
+                      mmdMotionName: "",
+                    })
+                  }
+                >
+                  清空 MMD
+                </button>
+              )}
+            </div>
+          )}
           <label className="check-row">
             <input
               type="checkbox"
@@ -333,10 +522,26 @@ export function SettingsWindow() {
               type="checkbox"
               checked={config.window.roamEnabled}
               onChange={(event) =>
-                updateConfig({ ...config, window: { ...config.window, roamEnabled: event.target.checked } })
+                updateConfigAndPersist({ ...config, window: { ...config.window, roamEnabled: event.target.checked } })
               }
             />
             空闲时自由移动
+          </label>
+          <label className="field">
+            <span>移动范围</span>
+            <select
+              value={config.window.roamMode}
+              disabled={!config.window.roamEnabled}
+              onChange={(event) =>
+                updateConfigAndPersist({ ...config, window: { ...config.window, roamMode: event.target.value as RoamMode } })
+              }
+            >
+              {roamModeOptions.map((option) => (
+                <option value={option.value} key={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
           <div className="split-fields">
             <label className="field">
@@ -348,7 +553,7 @@ export function SettingsWindow() {
                 step={1}
                 value={config.window.roamIntervalSeconds}
                 onChange={(event) =>
-                  updateConfig({
+                  updateConfigAndPersist({
                     ...config,
                     window: { ...config.window, roamIntervalSeconds: Number(event.target.value) },
                   })
@@ -364,7 +569,7 @@ export function SettingsWindow() {
                 step={0.2}
                 value={config.window.roamDurationSeconds}
                 onChange={(event) =>
-                  updateConfig({
+                  updateConfigAndPersist({
                     ...config,
                     window: { ...config.window, roamDurationSeconds: Number(event.target.value) },
                   })
