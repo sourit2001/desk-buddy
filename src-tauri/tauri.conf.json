@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "DeskPet",
+  "productName": "Desk Buddy",
   "version": "0.1.1",
   "identifier": "com.local.deskpet",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "DeskPet",
+        "title": "Desk Buddy",
         "url": "index.html?view=pet",
         "width": 280,
         "height": 320,

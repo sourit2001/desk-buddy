@@ -1,7 +1,7 @@
 import { ChangeEvent, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Eye, ImagePlus, MonitorUp, Plus, Save, SlidersHorizontal, Trash2 } from "lucide-react";
+import { CopyPlus, Eye, ImagePlus, MonitorUp, Plus, Save, SlidersHorizontal, Trash2 } from "lucide-react";
 import { loadConfig, loadConfigAsync, saveConfig } from "./config";
 import { readFileAsDataUrl, removeImageBackground } from "./imageCutout";
 import { isTauriRuntime } from "./tauriRuntime";
@@ -125,7 +125,7 @@ export function SettingsWindow() {
       mmdMotionPath: "",
       mmdMotionName: "",
       mmdMaterialMode: "texture",
-      mmdScale: 1,
+      mmdScale: 0.5,
       personality: "gentle",
       catchphrase: "",
     };
@@ -254,12 +254,20 @@ export function SettingsWindow() {
     await invoke("show_pet");
   }
 
+  async function openNewInstance() {
+    if (!isTauriRuntime()) {
+      window.open("/", "_blank");
+      return;
+    }
+    await invoke("open_new_instance");
+  }
+
   return (
     <main className="settings-shell">
       <header className="settings-header">
         <div>
-          <h1>桌宠设置</h1>
-          <p>透明 PNG、窗口行为、通用动效和 OpenAI-compatible API。</p>
+          <h1>Desk Buddy 设置</h1>
+          <p>desk-buddy 支持图片桌宠、MMD 模型、窗口行为、通用动效和 OpenAI-compatible API。</p>
         </div>
         <button className="primary-button" type="button" onClick={persist}>
           <Save size={16} />
@@ -293,11 +301,16 @@ export function SettingsWindow() {
                 <Plus size={15} />
                 新增
               </button>
+              <button className="ghost-button compact" type="button" onClick={openNewInstance}>
+                <CopyPlus size={15} />
+                打开新程序
+              </button>
               <button className="ghost-button compact danger-text" type="button" onClick={deleteActivePet} disabled={config.pets.length <= 1}>
                 <Trash2 size={15} />
                 删除
               </button>
             </div>
+            <small className="pet-manager-hint">当前选择：{activePet.name}</small>
           </div>
           <label className="field">
             <span>当前宠物名称</span>
@@ -651,11 +664,29 @@ export function SettingsWindow() {
             <Eye size={18} />
             对话 API
           </h2>
+          <div className="preset-actions" aria-label="API 预设">
+            <button
+              className="ghost-button compact"
+              type="button"
+              onClick={() =>
+                updateConfig({
+                  ...config,
+                  llm: {
+                    ...config.llm,
+                    baseUrl: "https://api.deepseek.com",
+                    model: "deepseek-v4-flash",
+                  },
+                })
+              }
+            >
+              使用 DeepSeek
+            </button>
+          </div>
           <label className="field">
             <span>Base URL</span>
             <input
               value={config.llm.baseUrl}
-              placeholder="https://api.openai.com/v1"
+              placeholder="https://api.deepseek.com"
               onChange={(event) => updateConfig({ ...config, llm: { ...config.llm, baseUrl: event.target.value } })}
             />
           </label>
@@ -664,7 +695,7 @@ export function SettingsWindow() {
               <span>Model</span>
               <input
                 value={config.llm.model}
-                placeholder="gpt-4.1-mini"
+                placeholder="deepseek-v4-flash"
                 onChange={(event) => updateConfig({ ...config, llm: { ...config.llm, model: event.target.value } })}
               />
             </label>

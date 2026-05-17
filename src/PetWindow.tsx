@@ -667,12 +667,42 @@ export function PetWindow() {
     interact(getPetLine("pet"), "happy", "clicked");
   }
 
-  async function startWindowDrag(event: MouseEvent<HTMLButtonElement>) {
+  async function startWindowDrag(event: MouseEvent<HTMLElement>) {
     if (event.button !== 0) return;
+    event.stopPropagation();
+    event.preventDefault();
     roamingRef.current = false;
     event.currentTarget.classList.add("dragging");
-    if (isTauriRuntime()) await getCurrentWindow().startDragging();
-    event.currentTarget.classList.remove("dragging");
+
+    if (!isTauriRuntime()) {
+      event.currentTarget.classList.remove("dragging");
+      return;
+    }
+
+    const dragElement = event.currentTarget;
+    const appWindow = getCurrentWindow();
+    const monitor = await currentMonitor();
+    const scaleFactor = monitor?.scaleFactor || 1;
+    const startMouseX = event.screenX;
+    const startMouseY = event.screenY;
+    const startPosition = await appWindow.outerPosition();
+    const startLogicalX = startPosition.x / scaleFactor;
+    const startLogicalY = startPosition.y / scaleFactor;
+
+    const moveWindow = (moveEvent: globalThis.MouseEvent) => {
+      const deltaX = moveEvent.screenX - startMouseX;
+      const deltaY = moveEvent.screenY - startMouseY;
+      appWindow.setPosition(new LogicalPosition(startLogicalX + deltaX, startLogicalY + deltaY)).catch(() => undefined);
+    };
+
+    const stopDrag = () => {
+      window.removeEventListener("mousemove", moveWindow);
+      window.removeEventListener("mouseup", stopDrag);
+      dragElement.classList.remove("dragging");
+    };
+
+    window.addEventListener("mousemove", moveWindow);
+    window.addEventListener("mouseup", stopDrag, { once: true });
   }
 
   async function roamToRandomPosition() {
@@ -796,38 +826,50 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
   }
 
   return (
-    <main className="pet-shell" style={petStyle} onClick={() => setPetMenu(null)} onContextMenu={handleContextMenu} onDoubleClick={openSettings}>
+    <main
+      className="pet-shell"
+      style={petStyle}
+      onClick={() => setPetMenu(null)}
+      onContextMenu={handleContextMenu}
+      onDoubleClick={openSettings}
+    >
       <div className="pet-drag-region" data-tauri-drag-region />
 
-      <div className="pet-status" aria-label="桌宠状态">
+      <div className="pet-status" aria-label="桌宠状态" data-tauri-drag-region>
         <strong>{activePet.name}</strong>
         <span>亲密 {Math.round(petState.affection)}</span>
         <span>精力 {Math.round(petState.energy)}</span>
       </div>
 
-      {bubble && <div className={`speech-bubble ${mood}`}>{bubble}</div>}
+      {bubble && (
+        <div className={`speech-bubble ${mood}`} data-tauri-drag-region>
+          {bubble}
+        </div>
+      )}
 
-      <button
+      <div className="pet-actions" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+        <button className="icon-button" type="button" title="互动" onClick={toggleInteractionMenu}>
+          <Sparkles size={16} />
+        </button>
+        <button className="icon-button" type="button" title="聊天" onClick={() => setComposerOpen(true)}>
+          <MessageCircle size={16} />
+        </button>
+        <button className="icon-button" type="button" title="设置" onClick={openSettings}>
+          <Settings size={16} />
+        </button>
+        <button className="icon-button danger" type="button" title="退出" onClick={quitApp}>
+          <Power size={16} />
+        </button>
+      </div>
+
+      <div
         className={`pet-stage ${mood} expression-${expression}`}
-        type="button"
+        role="button"
+        tabIndex={0}
         onMouseDown={startWindowDrag}
         onClick={handlePetClick}
         title="左键摸摸，右键互动，按住拖动位置，双击设置"
       >
-        <div className="pet-actions" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
-          <button className="icon-button" type="button" title="互动" onClick={toggleInteractionMenu}>
-            <Sparkles size={16} />
-          </button>
-          <button className="icon-button" type="button" title="聊天" onClick={() => setComposerOpen(true)}>
-            <MessageCircle size={16} />
-          </button>
-          <button className="icon-button" type="button" title="设置" onClick={openSettings}>
-            <Settings size={16} />
-          </button>
-          <button className="icon-button danger" type="button" title="退出" onClick={quitApp}>
-            <Power size={16} />
-          </button>
-        </div>
         {isMmdMode ? (
           <>
             <MmdPet
@@ -860,7 +902,7 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
             <span>打开设置</span>
           </div>
         )}
-      </button>
+      </div>
 
       {petMenu && (
         <div className="pet-menu" style={{ left: petMenu.x, top: petMenu.y }} onClick={(event) => event.stopPropagation()}>

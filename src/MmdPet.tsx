@@ -83,6 +83,11 @@ function formatMmdError(error: unknown) {
   return "未知错误";
 }
 
+function formatLoadProgress(event?: ProgressEvent<EventTarget>) {
+  if (!event || !event.lengthComputable || event.total <= 0) return "";
+  return ` ${Math.round((event.loaded / event.total) * 100)}%`;
+}
+
 const zipBaseUrl = "mmdzip://model/";
 const fileBaseUrl = "mmdfile://model/";
 const fallbackTextureDataUrl =
@@ -220,7 +225,13 @@ async function prepareMmdSource(modelDataUrl: string, motionDataUrl: string, mod
   return { manager, modelUrl: `${fileBaseUrl}model.${extension}`, motionUrl, modelLabel: `model.${extension}`, resourcePath: fileBaseUrl, textureUrls, dispose };
 }
 
-function loadMmdMesh(loader: MMDLoader, source: MmdModelSource, onLoad: (mesh: SkinnedMesh) => void, onError: (error: unknown) => void) {
+function loadMmdMesh(
+  loader: MMDLoader,
+  source: MmdModelSource,
+  onLoad: (mesh: SkinnedMesh) => void,
+  onError: (error: unknown) => void,
+  onProgress?: (event: ProgressEvent<EventTarget>) => void,
+) {
   const extension = getFileExtension(source.modelUrl);
   const loadModelData = extension === "pmd" ? loader.loadPMD.bind(loader) : loader.loadPMX.bind(loader);
 
@@ -252,7 +263,7 @@ function loadMmdMesh(loader: MMDLoader, source: MmdModelSource, onLoad: (mesh: S
         onError(error);
       }
     },
-    undefined,
+    onProgress,
     onError,
   );
 }
@@ -282,6 +293,46 @@ function fitObjectToView(object: Group | SkinnedMesh, camera: PerspectiveCamera,
   object.position.set(-center.x * scale, -center.y * scale - verticalView * 0.03, -center.z * scale);
 
   return { height, scale, width };
+}
+
+function keepObjectInView(object: Group | SkinnedMesh, camera: PerspectiveCamera) {
+  const bounds = new Box3().setFromObject(object);
+  const size = new Vector3();
+  const center = new Vector3();
+  bounds.getSize(size);
+  bounds.getCenter(center);
+
+  const distance = Math.max(0.1, camera.position.z - center.z);
+  const verticalView = 2 * Math.tan((camera.fov * Math.PI) / 360) * distance;
+  const horizontalView = verticalView * camera.aspect;
+  const paddingX = horizontalView * 0.08;
+  const paddingTop = verticalView * 0.08;
+  const paddingBottom = verticalView * 0.03;
+  const minX = -horizontalView / 2 + paddingX;
+  const maxX = horizontalView / 2 - paddingX;
+  const minY = -verticalView / 2 + paddingBottom;
+  const maxY = verticalView / 2 - paddingTop;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  if (size.x >= maxX - minX) {
+    offsetX = -center.x;
+  } else if (bounds.min.x < minX) {
+    offsetX = minX - bounds.min.x;
+  } else if (bounds.max.x > maxX) {
+    offsetX = maxX - bounds.max.x;
+  }
+
+  if (size.y >= maxY - minY) {
+    offsetY = (minY + maxY) / 2 - center.y;
+  } else if (bounds.min.y < minY) {
+    offsetY = minY - bounds.min.y;
+  } else if (bounds.max.y > maxY) {
+    offsetY = maxY - bounds.max.y;
+  }
+
+  object.position.x += offsetX;
+  object.position.y += offsetY;
 }
 
 function createFallbackModel() {
@@ -602,6 +653,7 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
       activeObject.rotation.y = rotationY;
       activeObject.rotation.z = rotationZ;
       applyProceduralRig(proceduralRig, currentMood, elapsed, intensity);
+      keepObjectInView(activeObject, camera);
       renderer.render(scene, camera);
       animationFrame = window.requestAnimationFrame(render);
     };
@@ -611,7 +663,8 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
     render();
 
     if (modelPath || modelDataUrl) {
-      setStatus("加载 MMD");
+      const motionLabel = motionName || "motion.vmd";
+      setStatus("准备 MMD 资源");
       Promise.all([resolveAssetSource(modelPath, modelDataUrl), resolveAssetSource(motionPath, motionDataUrl)])
         .then(([modelSource, motionSource]) => prepareMmdSource(modelSource, motionSource, modelName))
         .then((preparedSource) => {
@@ -621,7 +674,7 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
           }
 
           source = preparedSource;
-          setStatus(`加载 ${preparedSource.modelLabel}`);
+          setStatus(`正在加载模型：${preparedSource.modelLabel}`);
           const loader = new MMDLoader(preparedSource.manager);
           loader.setResourcePath(isZipSource(modelName) ? zipBaseUrl : fileBaseUrl);
           loadMmdMesh(
@@ -644,18 +697,21 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
                 activeBaseY = mesh.position.y;
                 proceduralRig = createProceduralRig(mesh);
                 const proceduralBoneCount = getProceduralBoneCount(proceduralRig);
-                setStatus(`m${materialStats.materialCount} u${materialStats.directTextureUrls} a${appliedTextures}`);
+                setStatus(`模型已显示，贴图 ${appliedTextures}/${materialStats.materialCount}`);
 
                 if (preparedSource.motionUrl) {
+                  setStatus(`正在解析动作：${motionLabel}`);
                   loader.loadAnimation(
                     preparedSource.motionUrl,
                     mesh,
                     (animation) => {
                       if (disposed) return;
                       helper.add(mesh, { animation, physics: false });
-                      setStatus(`动作已加载：${motionName || "motion.vmd"}，关节补动 ${proceduralBoneCount}`);
+                      setStatus(`动作已加载：${motionLabel}，关节补动 ${proceduralBoneCount}`);
                     },
-                    undefined,
+                    (event) => {
+                      if (!disposed) setStatus(`正在读取动作：${motionLabel}${formatLoadProgress(event)}`);
+                    },
                     (error) => {
                       if (!disposed) setStatus(`动作加载失败：${formatMmdError(error)}`);
                     },
@@ -669,6 +725,9 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
             },
             (error) => {
               if (!disposed) setStatus(`模型加载失败：${formatMmdError(error)}`);
+            },
+            (event) => {
+              if (!disposed) setStatus(`正在读取模型：${preparedSource.modelLabel}${formatLoadProgress(event)}`);
             },
           );
         })

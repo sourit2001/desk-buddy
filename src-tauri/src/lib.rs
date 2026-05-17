@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     fs,
     path::PathBuf,
+    process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
@@ -180,6 +181,14 @@ async fn show_pet(app: tauri::AppHandle) -> Result<(), AppError> {
     Ok(())
 }
 
+#[tauri::command]
+async fn open_new_instance() -> Result<(), AppError> {
+    let executable = std::env::current_exe().map_err(|error| AppError::Window(error.to_string()))?;
+    Command::new(executable)
+        .spawn()
+        .map_err(|error| AppError::Window(error.to_string()))?;
+    Ok(())
+}
 
 #[tauri::command]
 async fn quit_app(app: tauri::AppHandle) -> Result<(), AppError> {
@@ -239,7 +248,7 @@ pub fn run() {
             }
 
             WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("index.html?view=settings".into()))
-                .title("桌宠设置")
+                .title("Desk Buddy 设置")
                 .inner_size(780.0, 720.0)
                 .min_inner_size(620.0, 560.0)
                 .resizable(true)
@@ -254,6 +263,7 @@ pub fn run() {
             read_mmd_asset,
             show_settings,
             show_pet,
+            open_new_instance,
             quit_app,
             chat_completion
         ])
