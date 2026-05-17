@@ -1,5 +1,5 @@
 export type PetMood = "idle" | "thinking" | "speaking" | "clicked" | "stretch" | "wiggle" | "hop" | "walk" | "greet" | "nod";
-export type PetExpression = "neutral" | "happy" | "curious" | "sleepy" | "surprised" | "shy";
+export type PetExpression = "neutral" | "happy" | "curious" | "sleepy" | "surprised" | "shy" | "bored" | "petting";
 export type PetPersonality = "gentle" | "lively" | "cool" | "clingy";
 export type RoamMode = "anywhere" | "edges" | "topBottom" | "leftRight" | "top" | "bottom" | "left" | "right" | "middle";
 export type PetDisplayMode = "image" | "mmd";
@@ -71,7 +71,7 @@ export const defaultConfig: AppConfig = {
       mmdMotionDataUrl: "",
       mmdMotionPath: "",
       mmdMotionName: "",
-      mmdMaterialMode: "debug",
+      mmdMaterialMode: "texture",
       mmdScale: 1,
       personality: "gentle",
       catchphrase: "",

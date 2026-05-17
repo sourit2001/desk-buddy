@@ -13,7 +13,6 @@ import {
   Material,
   Mesh,
   MeshBasicMaterial,
-  MeshNormalMaterial,
   MeshStandardMaterial,
   PerspectiveCamera,
   Scene,
@@ -28,7 +27,7 @@ import {
 import JSZip from "jszip";
 import { MMDAnimationHelper, MMDLoader } from "three-stdlib";
 import { isTauriRuntime } from "./tauriRuntime";
-import { MmdMaterialMode, PetMood } from "./types";
+import { PetMood } from "./types";
 
 type MmdPetProps = {
   modelDataUrl: string;
@@ -37,7 +36,6 @@ type MmdPetProps = {
   motionPath: string;
   motionName: string;
   modelName: string;
-  materialMode: MmdMaterialMode;
   modelScale: number;
   mood: PetMood;
   intensity: number;
@@ -372,7 +370,7 @@ function setEnhancedTextureWhenReady(material: MeshBasicMaterial, texture: Textu
   }
 }
 
-function fixMmdMaterials(object: Group | SkinnedMesh, mode: MmdMaterialMode, onTextureApplied?: () => void) {
+function fixMmdMaterials(object: Group | SkinnedMesh, onTextureApplied?: () => void) {
   let materialCount = 0;
   let existingMaps = 0;
   let directTextureUrls = 0;
@@ -394,56 +392,39 @@ function fixMmdMaterials(object: Group | SkinnedMesh, mode: MmdMaterialMode, onT
         transparent?: boolean;
         name?: string;
       };
-      if (mode === "texture") {
-        const hasTexture = Boolean(fixedMaterial.map);
-        if (fixedMaterial.map) {
-          existingMaps += 1;
-          fixedMaterial.map.flipY = false;
-          fixedMaterial.map.colorSpace = SRGBColorSpace;
-          fixedMaterial.map.needsUpdate = true;
-        }
-
-        const fallbackColor = fixedMaterial.color?.clone() ?? new Color("#d9b38c");
-        if (fallbackColor.r + fallbackColor.g + fallbackColor.b < 0.18) fallbackColor.set("#d9b38c");
-
-        const materialCompat = new MeshBasicMaterial({
-          name: fixedMaterial.name,
-          color: fallbackColor,
-          map: null,
-          side: DoubleSide,
-          transparent: false,
-          opacity: 1,
-          alphaTest: 0,
-          depthWrite: true,
-          toneMapped: false,
-        });
-
-        const directTextureUrl = materialTextureUrls?.[materialIndex];
-        if (directTextureUrl) {
-          directTextureUrls += 1;
-          textureLoader.load(directTextureUrl, (texture) => {
-            texture.flipY = false;
-            texture.colorSpace = SRGBColorSpace;
-            setEnhancedTextureWhenReady(materialCompat, texture, onTextureApplied);
-          });
-        } else if (fixedMaterial.map) {
-          setEnhancedTextureWhenReady(materialCompat, fixedMaterial.map, onTextureApplied);
-        }
-
-        return materialCompat;
+      if (fixedMaterial.map) {
+        existingMaps += 1;
+        fixedMaterial.map.flipY = false;
+        fixedMaterial.map.colorSpace = SRGBColorSpace;
+        fixedMaterial.map.needsUpdate = true;
       }
 
-      if (mode === "solid") {
-        return new MeshBasicMaterial({
-          name: fixedMaterial.name,
-          color: fixedMaterial.color?.clone() ?? new Color("#d9b38c"),
-          side: DoubleSide,
-          transparent: false,
-          toneMapped: false,
-        });
-      }
+      const fallbackColor = fixedMaterial.color?.clone() ?? new Color("#d9b38c");
+      if (fallbackColor.r + fallbackColor.g + fallbackColor.b < 0.18) fallbackColor.set("#d9b38c");
 
-      const materialCompat = new MeshNormalMaterial({ name: fixedMaterial.name, side: DoubleSide, transparent: false, opacity: 1 });
+      const materialCompat = new MeshBasicMaterial({
+        name: fixedMaterial.name,
+        color: fallbackColor,
+        map: null,
+        side: DoubleSide,
+        transparent: false,
+        opacity: 1,
+        alphaTest: 0,
+        depthWrite: true,
+        toneMapped: false,
+      });
+
+      const directTextureUrl = materialTextureUrls?.[materialIndex];
+      if (directTextureUrl) {
+        directTextureUrls += 1;
+        textureLoader.load(directTextureUrl, (texture) => {
+          texture.flipY = false;
+          texture.colorSpace = SRGBColorSpace;
+          setEnhancedTextureWhenReady(materialCompat, texture, onTextureApplied);
+        });
+      } else if (fixedMaterial.map) {
+        setEnhancedTextureWhenReady(materialCompat, fixedMaterial.map, onTextureApplied);
+      }
 
       return materialCompat;
     });
@@ -532,7 +513,7 @@ function applyProceduralRig(rig: ProceduralRig | null, mood: PetMood, elapsed: n
   }
 }
 
-export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, motionName, modelName, materialMode, modelScale, mood, intensity }: MmdPetProps) {
+export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, motionName, modelName, modelScale, mood, intensity }: MmdPetProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const moodRef = useRef(mood);
   const [status, setStatus] = useState(modelPath || modelDataUrl ? "加载 MMD" : "MMD 预览");
@@ -652,11 +633,9 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
                 scene.remove(fallback);
                 const fit = fitObjectToView(mesh, camera, modelScale);
                 let appliedTextures = 0;
-                const materialStats = fixMmdMaterials(mesh, materialMode, () => {
+                const materialStats = fixMmdMaterials(mesh, () => {
                   appliedTextures += 1;
-                  if (!disposed && materialMode === "texture") {
-                    setStatus(`m${materialStats.materialCount} u${materialStats.directTextureUrls} a${appliedTextures}`);
-                  }
+                  if (!disposed) setStatus(`m${materialStats.materialCount} u${materialStats.directTextureUrls} a${appliedTextures}`);
                 });
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
@@ -665,11 +644,7 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
                 activeBaseY = mesh.position.y;
                 proceduralRig = createProceduralRig(mesh);
                 const proceduralBoneCount = getProceduralBoneCount(proceduralRig);
-                setStatus(
-                  materialMode === "texture"
-                    ? `m${materialStats.materialCount} u${materialStats.directTextureUrls} a${appliedTextures}`
-                    : `${getDisplayFileName(modelName) || "MMD 模型"} h=${fit.height.toFixed(1)}`,
-                );
+                setStatus(`m${materialStats.materialCount} u${materialStats.directTextureUrls} a${appliedTextures}`);
 
                 if (preparedSource.motionUrl) {
                   loader.loadAnimation(
@@ -718,7 +693,7 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
       });
       source?.dispose();
     };
-  }, [modelDataUrl, modelPath, motionDataUrl, motionPath, motionName, modelName, materialMode, modelScale, intensity]);
+  }, [modelDataUrl, modelPath, motionDataUrl, motionPath, motionName, modelName, modelScale, intensity]);
 
   return (
     <div className="mmd-stage" ref={mountRef} aria-label={status}>

@@ -5,7 +5,7 @@ import { Eye, ImagePlus, MonitorUp, Plus, Save, SlidersHorizontal, Trash2 } from
 import { loadConfig, loadConfigAsync, saveConfig } from "./config";
 import { readFileAsDataUrl, removeImageBackground } from "./imageCutout";
 import { isTauriRuntime } from "./tauriRuntime";
-import { AppConfig, DesktopPet, getActivePet, MmdMaterialMode, PetDisplayMode, PetPersonality, RoamMode } from "./types";
+import { AppConfig, DesktopPet, getActivePet, PetDisplayMode, PetPersonality, RoamMode } from "./types";
 
 const personalityOptions: Array<{ value: PetPersonality; label: string }> = [
   { value: "gentle", label: "温和" },
@@ -17,12 +17,6 @@ const personalityOptions: Array<{ value: PetPersonality; label: string }> = [
 const displayModeOptions: Array<{ value: PetDisplayMode; label: string }> = [
   { value: "image", label: "图片桌宠" },
   { value: "mmd", label: "MMD 模型" },
-];
-
-const mmdMaterialModeOptions: Array<{ value: MmdMaterialMode; label: string }> = [
-  { value: "debug", label: "调试材质" },
-  { value: "solid", label: "纯色材质" },
-  { value: "texture", label: "贴图材质" },
 ];
 
 type MmdAsset = {
@@ -130,7 +124,7 @@ export function SettingsWindow() {
       mmdMotionDataUrl: "",
       mmdMotionPath: "",
       mmdMotionName: "",
-      mmdMaterialMode: "debug",
+      mmdMaterialMode: "texture",
       mmdScale: 1,
       personality: "gentle",
       catchphrase: "",
@@ -336,7 +330,14 @@ export function SettingsWindow() {
             <span>显示模式</span>
             <select
               value={activePet.displayMode}
-              onChange={(event) => updatePetAndPersist({ ...activePet, displayMode: event.target.value as PetDisplayMode })}
+              onChange={(event) => {
+                const displayMode = event.target.value as PetDisplayMode;
+                updatePetAndPersist({
+                  ...activePet,
+                  displayMode,
+                  mmdMaterialMode: "texture",
+                });
+              }}
             >
               {displayModeOptions.map((option) => (
                 <option value={option.value} key={option.value}>
@@ -364,19 +365,6 @@ export function SettingsWindow() {
                 <span>动作：{activePet.mmdMotionName || "未选择，将使用程序化轻动作"}</span>
                 <span>提示：先解压动作包，再选择角色动作 .vmd；不要选择 zip 或 camera.vmd。</span>
               </div>
-              <label className="field">
-                <span>MMD 材质</span>
-                <select
-                  value={activePet.mmdMaterialMode}
-                  onChange={(event) => updatePetAndPersist({ ...activePet, mmdMaterialMode: event.target.value as MmdMaterialMode })}
-                >
-                  {mmdMaterialModeOptions.map((option) => (
-                    <option value={option.value} key={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <label className="field">
                 <span>MMD 缩放：{activePet.mmdScale.toFixed(2)}x</span>
                 <input
@@ -409,70 +397,74 @@ export function SettingsWindow() {
               )}
             </div>
           )}
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={config.imageProcessing.removeBackground}
-              onChange={(event) =>
-                updateConfig({
-                  ...config,
-                  imageProcessing: { ...config.imageProcessing, removeBackground: event.target.checked },
-                })
-              }
-            />
-            上传时自动抠图
-          </label>
-          <label className="field">
-            <span>抠图容差</span>
-            <input
-              type="range"
-              min={12}
-              max={96}
-              step={2}
-              value={config.imageProcessing.backgroundTolerance}
-              disabled={!config.imageProcessing.removeBackground}
-              onChange={(event) =>
-                updateConfig({
-                  ...config,
-                  imageProcessing: { ...config.imageProcessing, backgroundTolerance: Number(event.target.value) },
-                })
-              }
-            />
-          </label>
-          <div className="image-toolbar">
-            <label className="primary-button file-button">
-              <ImagePlus size={16} />
-              {processingImages ? "处理中" : "添加图片"}
-              <input type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={updateImages} disabled={processingImages} />
-            </label>
-            {petImages.length > 0 && (
-              <button
-                className="ghost-button"
-                type="button"
-                onClick={() => updatePet({ ...activePet, images: [] })}
-              >
-                清空
-              </button>
-            )}
-          </div>
-          <div className="upload-box">
-            {petImages[previewIndex] ? (
-              <img key={`${previewIndex}-${petImages[previewIndex].length}`} src={petImages[previewIndex]} alt="预览" />
-            ) : (
-              <span>{config.imageProcessing.removeBackground ? "选择普通图片，上传时自动抠图" : "选择透明 PNG，或打开自动抠图"}</span>
-            )}
-          </div>
-          {petImages.length > 0 && (
-            <div className="image-strip" aria-label="已上传图片">
-              {petImages.map((image, index) => (
-                <div className="image-tile" key={`${image.length}-${index}`}>
-                  <img src={image} alt={`桌宠图片 ${index + 1}`} />
-                  <button className="tile-remove" type="button" title="删除" onClick={() => removeImage(index)}>
-                    <Trash2 size={14} />
+          {activePet.displayMode === "image" && (
+            <>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={config.imageProcessing.removeBackground}
+                  onChange={(event) =>
+                    updateConfig({
+                      ...config,
+                      imageProcessing: { ...config.imageProcessing, removeBackground: event.target.checked },
+                    })
+                  }
+                />
+                上传时自动抠图
+              </label>
+              <label className="field">
+                <span>抠图容差</span>
+                <input
+                  type="range"
+                  min={12}
+                  max={96}
+                  step={2}
+                  value={config.imageProcessing.backgroundTolerance}
+                  disabled={!config.imageProcessing.removeBackground}
+                  onChange={(event) =>
+                    updateConfig({
+                      ...config,
+                      imageProcessing: { ...config.imageProcessing, backgroundTolerance: Number(event.target.value) },
+                    })
+                  }
+                />
+              </label>
+              <div className="image-toolbar">
+                <label className="primary-button file-button">
+                  <ImagePlus size={16} />
+                  {processingImages ? "处理中" : "添加图片"}
+                  <input type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={updateImages} disabled={processingImages} />
+                </label>
+                {petImages.length > 0 && (
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() => updatePet({ ...activePet, images: [] })}
+                  >
+                    清空
                   </button>
+                )}
+              </div>
+              <div className="upload-box">
+                {petImages[previewIndex] ? (
+                  <img key={`${previewIndex}-${petImages[previewIndex].length}`} src={petImages[previewIndex]} alt="预览" />
+                ) : (
+                  <span>{config.imageProcessing.removeBackground ? "选择普通图片，上传时自动抠图" : "选择透明 PNG，或打开自动抠图"}</span>
+                )}
+              </div>
+              {petImages.length > 0 && (
+                <div className="image-strip" aria-label="已上传图片">
+                  {petImages.map((image, index) => (
+                    <div className="image-tile" key={`${image.length}-${index}`}>
+                      <img src={image} alt={`桌宠图片 ${index + 1}`} />
+                      <button className="tile-remove" type="button" title="删除" onClick={() => removeImage(index)}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )}
+            </>
           )}
         </div>
 
@@ -600,16 +592,18 @@ export function SettingsWindow() {
               }
             />
           </label>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={config.animation.framePlayback}
-              onChange={(event) =>
-                updateConfig({ ...config, animation: { ...config.animation, framePlayback: event.target.checked } })
-              }
-            />
-            播放多图帧动画
-          </label>
+          {activePet.displayMode === "image" && (
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={config.animation.framePlayback}
+                onChange={(event) =>
+                  updateConfig({ ...config, animation: { ...config.animation, framePlayback: event.target.checked } })
+                }
+              />
+              播放多图帧动画
+            </label>
+          )}
           <label className="check-row">
             <input
               type="checkbox"
@@ -620,32 +614,36 @@ export function SettingsWindow() {
             />
             启用表情变化
           </label>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={config.animation.randomImageSwitch}
-              onChange={(event) =>
-                updateConfig({ ...config, animation: { ...config.animation, randomImageSwitch: event.target.checked } })
-              }
-            />
-            偶尔随机跳帧
-          </label>
-          <label className="field">
-            <span>帧间隔（秒）</span>
-            <input
-              type="number"
-              min={0.3}
-              max={5}
-              step={0.05}
-              value={config.animation.imageSwitchSeconds}
-              onChange={(event) =>
-                updateConfig({
-                  ...config,
-                  animation: { ...config.animation, imageSwitchSeconds: Number(event.target.value) },
-                })
-              }
-            />
-          </label>
+          {activePet.displayMode === "image" && (
+            <>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={config.animation.randomImageSwitch}
+                  onChange={(event) =>
+                    updateConfig({ ...config, animation: { ...config.animation, randomImageSwitch: event.target.checked } })
+                  }
+                />
+                偶尔随机跳帧
+              </label>
+              <label className="field">
+                <span>帧间隔（秒）</span>
+                <input
+                  type="number"
+                  min={0.3}
+                  max={5}
+                  step={0.05}
+                  value={config.animation.imageSwitchSeconds}
+                  onChange={(event) =>
+                    updateConfig({
+                      ...config,
+                      animation: { ...config.animation, imageSwitchSeconds: Number(event.target.value) },
+                    })
+                  }
+                />
+              </label>
+            </>
+          )}
         </div>
 
         <div className="panel wide">

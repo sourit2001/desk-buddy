@@ -52,6 +52,10 @@ const moodDurations: Partial<Record<PetMood, number>> = {
   nod: 1050,
 };
 
+const proactiveLineDelays = {
+  interval: 12000,
+};
+
 const personalityNames = {
   gentle: "温和",
   lively: "活泼",
@@ -92,9 +96,16 @@ function randomBetween(min: number, max: number) {
 function pickFarCoordinate(min: number, max: number, current: number) {
   const span = Math.max(1, max - min);
   const midpoint = min + span / 2;
-  const targetMin = current < midpoint ? min + span * 0.72 : min;
-  const targetMax = current < midpoint ? max : max - span * 0.72;
+  const targetMin = current < midpoint ? min + span * 0.88 : min;
+  const targetMax = current < midpoint ? max : max - span * 0.88;
   return randomBetween(targetMin, targetMax);
+}
+
+function pickOppositeEdgeCoordinate(min: number, max: number, current: number) {
+  const span = Math.max(1, max - min);
+  const edgeBand = Math.max(1, span * 0.08);
+  const midpoint = min + span / 2;
+  return current < midpoint ? randomBetween(max - edgeBand, max) : randomBetween(min, min + edgeBand);
 }
 
 function distanceBetween(from: RoamTarget, to: RoamTarget) {
@@ -167,13 +178,13 @@ function getEdgeRoamPath(start: RoamTarget, bounds: RoamBounds): RoamTarget[] {
 
 function getHorizontalEdgeRoamPath(mode: Extract<RoamMode, "top" | "bottom" | "topBottom">, start: RoamTarget, bounds: RoamBounds) {
   const currentEdge = Math.abs(start.y - bounds.top) <= Math.abs(start.y - bounds.bottom) ? "top" : "bottom";
-  const edge = mode === "topBottom" ? currentEdge : mode;
+  const edge = mode === "topBottom" ? (currentEdge === "top" ? "bottom" : "top") : mode;
   const startOnEdge = pointOnEdge(edge, start, bounds);
 
   return [
     startOnEdge,
     {
-      x: pickFarCoordinate(bounds.left, bounds.right, startOnEdge.x),
+      x: pickOppositeEdgeCoordinate(bounds.left, bounds.right, start.x),
       y: edge === "top" ? bounds.top : bounds.bottom,
     },
   ];
@@ -181,14 +192,14 @@ function getHorizontalEdgeRoamPath(mode: Extract<RoamMode, "top" | "bottom" | "t
 
 function getVerticalEdgeRoamPath(mode: Extract<RoamMode, "left" | "right" | "leftRight">, start: RoamTarget, bounds: RoamBounds) {
   const currentEdge = Math.abs(start.x - bounds.left) <= Math.abs(start.x - bounds.right) ? "left" : "right";
-  const edge = mode === "leftRight" ? currentEdge : mode;
+  const edge = mode === "leftRight" ? (currentEdge === "left" ? "right" : "left") : mode;
   const startOnEdge = pointOnEdge(edge, start, bounds);
 
   return [
     startOnEdge,
     {
       x: edge === "left" ? bounds.left : bounds.right,
-      y: pickFarCoordinate(bounds.top, bounds.bottom, startOnEdge.y),
+      y: pickOppositeEdgeCoordinate(bounds.top, bounds.bottom, start.y),
     },
   ];
 }
@@ -229,6 +240,10 @@ function getRoamTarget(mode: RoamMode, bounds: RoamBounds): RoamTarget {
     if (side === 1) return { x: randomBetween(bounds.left, bounds.right), y: randomBetween(bounds.bottom - edgeBand, bounds.bottom) };
     if (side === 2) return { x: randomBetween(bounds.left, bounds.left + edgeBand), y: randomBetween(bounds.top, bounds.bottom) };
     return { x: randomBetween(bounds.right - edgeBand, bounds.right), y: randomBetween(bounds.top, bounds.bottom) };
+  }
+
+  if (Math.random() < 0.72) {
+    return getRoamTarget("edges", bounds);
   }
 
   return {
@@ -294,6 +309,7 @@ export function PetWindow() {
   const expressionTimeoutRef = useRef<number>();
   const expressionIndexRef = useRef(0);
   const roamingRef = useRef(false);
+  const proactiveLineCountRef = useRef(0);
   const moodRef = useRef<PetMood>("idle");
   const composerOpenRef = useRef(false);
   const activePet = getActivePet(config);
@@ -410,7 +426,7 @@ export function PetWindow() {
       return;
     }
 
-    const expressions: PetExpression[] = ["curious", "surprised", "sleepy", "shy", "happy"];
+    const expressions: PetExpression[] = ["curious", "bored", "surprised", "sleepy", "shy", "happy", "petting"];
     const timeout = window.setTimeout(
       () => {
         const nextExpression = expressions[expressionIndexRef.current % expressions.length];
@@ -430,29 +446,34 @@ export function PetWindow() {
   const petStyle = useMemo(
     () => ({
       "--intensity": config.animation.enabled ? config.animation.intensity : 0,
+      "--pet-scale": isMmdMode ? activePet.mmdScale : 1,
     }) as React.CSSProperties,
-    [config.animation.enabled, config.animation.intensity],
+    [activePet.mmdScale, config.animation.enabled, config.animation.intensity, isMmdMode],
   );
 
   const currentPetImage = petImages[imageIndex] ?? "";
   const hasPetVisual = isMmdMode || Boolean(currentPetImage);
 
   useEffect(() => {
-    if (!hasPetVisual || composerOpen || mood !== "idle" || bubble) return;
+    if (!hasPetVisual) return;
 
-    const timeout = window.setTimeout(
-      () => {
-        if (composerOpenRef.current || moodRef.current !== "idle") return;
-        const line = getIdleLine();
-        setBubble(line);
-        setExpression(petState.energy < 32 ? "sleepy" : "curious");
+    const interval = window.setInterval(() => {
+      if (composerOpenRef.current || bubble || moodRef.current === "thinking" || moodRef.current === "speaking") return;
+      if (roamingRef.current && proactiveLineCountRef.current > 0) return;
+
+      const firstLine = proactiveLineCountRef.current === 0;
+      const shouldSpeak = firstLine || Math.random() < 0.58;
+      if (shouldSpeak) {
+        const idle = getIdleLine();
+        proactiveLineCountRef.current += 1;
+        setBubble(idle.text);
+        setExpression(idle.expression);
         window.setTimeout(() => setExpression("neutral"), 2200);
-      },
-      22000 + Math.random() * 18000,
-    );
+      }
+    }, proactiveLineDelays.interval);
 
-    return () => window.clearTimeout(timeout);
-  }, [activePet.id, bubble, composerOpen, currentPetImage, hasPetVisual, mood, petState.affection, petState.energy]);
+    return () => window.clearInterval(interval);
+  }, [activePet.id, bubble, hasPetVisual, petState.affection, petState.energy]);
 
   function commitPetState(updater: (state: PetRuntimeState) => PetRuntimeState) {
     setPetState((current) => {
@@ -504,16 +525,59 @@ export function PetWindow() {
     return lines[Math.floor(Math.random() * lines.length)];
   }
 
-  function getIdleLine() {
-    if (petState.energy < 28) return `${activePet.name} 有点困了。`;
-    if (petState.affection > 75) return `${activePet.name} 正在等你摸摸。`;
-
-    const lines = {
-      gentle: ["休息一下眼睛吧。", "我在这里陪你。", "今天也慢慢来。"],
-      lively: ["要不要活动一下？", "我刚刚想到一个好玩的动作。", "你忙完了吗？"],
-      cool: ["我在巡逻。", "效率还不错。", "别忘了保存你的工作。"],
-      clingy: ["你是不是忘记我了？", "我可以靠近一点吗？", "陪我说句话嘛。"],
+  function getIdleLine(): { text: string; expression: PetExpression } {
+    const tiredLines = [
+      { text: `${activePet.name} 有点困了。`, expression: "sleepy" as PetExpression },
+      { text: "眼皮有点重。", expression: "sleepy" as PetExpression },
+      { text: "我想安静待一会儿。", expression: "sleepy" as PetExpression },
+    ];
+    const affectionateLines = [
+      { text: `${activePet.name} 正在等你摸摸。`, expression: "petting" as PetExpression },
+      { text: "你刚刚是不是看我了？", expression: "curious" as PetExpression },
+      { text: "我今天很乖。", expression: "happy" as PetExpression },
+      { text: "陪你待着也不错。", expression: "happy" as PetExpression },
+      { text: "可以靠近你一点吗？", expression: "petting" as PetExpression },
+      { text: "我在这里，不会打扰你。", expression: "curious" as PetExpression },
+    ];
+    const personalityLines = {
+      gentle: [
+        { text: "休息一下眼睛吧。", expression: "curious" as PetExpression },
+        { text: "我在这里陪你。", expression: "happy" as PetExpression },
+        { text: "今天也慢慢来。", expression: "bored" as PetExpression },
+        { text: "喝点水也不错。", expression: "curious" as PetExpression },
+        { text: "不用着急，我等你。", expression: "happy" as PetExpression },
+        { text: "窗外现在安静吗？", expression: "curious" as PetExpression },
+      ],
+      lively: [
+        { text: "要不要活动一下？", expression: "happy" as PetExpression },
+        { text: "我刚刚想到一个好玩的动作。", expression: "curious" as PetExpression },
+        { text: "你忙完了吗？", expression: "petting" as PetExpression },
+        { text: "我可以转一圈吗？", expression: "happy" as PetExpression },
+        { text: "现在适合小小休息一下。", expression: "curious" as PetExpression },
+        { text: "我有点想出去走走。", expression: "bored" as PetExpression },
+      ],
+      cool: [
+        { text: "我在巡逻。", expression: "curious" as PetExpression },
+        { text: "效率还不错。", expression: "happy" as PetExpression },
+        { text: "有点无聊。", expression: "bored" as PetExpression },
+        { text: "状态稳定。", expression: "curious" as PetExpression },
+        { text: "别忘了保存。", expression: "curious" as PetExpression },
+        { text: "我只是路过。", expression: "bored" as PetExpression },
+      ],
+      clingy: [
+        { text: "你是不是忘记我了？", expression: "bored" as PetExpression },
+        { text: "我可以靠近一点吗？", expression: "petting" as PetExpression },
+        { text: "陪我说句话嘛。", expression: "petting" as PetExpression },
+        { text: "我刚刚一直在等你。", expression: "petting" as PetExpression },
+        { text: "你忙你的，我看着你。", expression: "happy" as PetExpression },
+        { text: "不要太久不理我。", expression: "bored" as PetExpression },
+      ],
     }[activePet.personality];
+    const lines = [
+      ...personalityLines,
+      ...(petState.energy < 36 ? tiredLines : []),
+      ...(petState.affection > 72 ? affectionateLines : []),
+    ];
 
     return lines[Math.floor(Math.random() * lines.length)];
   }
@@ -559,7 +623,7 @@ export function PetWindow() {
     }
 
     const updates = {
-      pet: { affection: 4, energy: 0, expression: "happy" as PetExpression, mood: "clicked" as PetMood },
+        pet: { affection: 4, energy: 0, expression: "petting" as PetExpression, mood: "clicked" as PetMood },
       feed: { affection: 2, energy: 12, expression: "happy" as PetExpression, mood: "speaking" as PetMood },
       nap: { affection: 0, energy: 24, expression: "sleepy" as PetExpression, mood: "stretch" as PetMood },
       play: { affection: 5, energy: -10, expression: "surprised" as PetExpression, mood: "hop" as PetMood },
@@ -719,24 +783,21 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
     }
   }
 
+  function renderExpressionLayer() {
+    if (!config.animation.expressionEffects || expression === "neutral") return null;
+
+    return (
+      <div className={`expression-layer ${expression}`} aria-hidden="true">
+        <span className="mark mark-one" />
+        <span className="mark mark-two" />
+        <span className="mark mark-three" />
+      </div>
+    );
+  }
+
   return (
     <main className="pet-shell" style={petStyle} onClick={() => setPetMenu(null)} onContextMenu={handleContextMenu} onDoubleClick={openSettings}>
       <div className="pet-drag-region" data-tauri-drag-region />
-
-      <div className="pet-actions">
-        <button className="icon-button" type="button" title="互动" onClick={toggleInteractionMenu}>
-          <Sparkles size={16} />
-        </button>
-        <button className="icon-button" type="button" title="聊天" onClick={() => setComposerOpen(true)}>
-          <MessageCircle size={16} />
-        </button>
-        <button className="icon-button" type="button" title="设置" onClick={openSettings}>
-          <Settings size={16} />
-        </button>
-        <button className="icon-button danger" type="button" title="退出" onClick={quitApp}>
-          <Power size={16} />
-        </button>
-      </div>
 
       <div className="pet-status" aria-label="桌宠状态">
         <strong>{activePet.name}</strong>
@@ -753,19 +814,35 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
         onClick={handlePetClick}
         title="左键摸摸，右键互动，按住拖动位置，双击设置"
       >
+        <div className="pet-actions" onClick={(event) => event.stopPropagation()} onMouseDown={(event) => event.stopPropagation()}>
+          <button className="icon-button" type="button" title="互动" onClick={toggleInteractionMenu}>
+            <Sparkles size={16} />
+          </button>
+          <button className="icon-button" type="button" title="聊天" onClick={() => setComposerOpen(true)}>
+            <MessageCircle size={16} />
+          </button>
+          <button className="icon-button" type="button" title="设置" onClick={openSettings}>
+            <Settings size={16} />
+          </button>
+          <button className="icon-button danger" type="button" title="退出" onClick={quitApp}>
+            <Power size={16} />
+          </button>
+        </div>
         {isMmdMode ? (
-          <MmdPet
-            modelDataUrl={activePet.mmdModelDataUrl}
-            modelPath={activePet.mmdModelPath}
-            motionDataUrl={activePet.mmdMotionDataUrl}
-            motionPath={activePet.mmdMotionPath}
-            motionName={activePet.mmdMotionName}
-            modelName={activePet.mmdModelName || activePet.mmdModelPath}
-            materialMode={activePet.mmdMaterialMode}
-            modelScale={activePet.mmdScale}
-            mood={mood}
-            intensity={config.animation.enabled ? config.animation.intensity : 0}
-          />
+          <>
+            <MmdPet
+              modelDataUrl={activePet.mmdModelDataUrl}
+              modelPath={activePet.mmdModelPath}
+              motionDataUrl={activePet.mmdMotionDataUrl}
+              motionPath={activePet.mmdMotionPath}
+              motionName={activePet.mmdMotionName}
+              modelName={activePet.mmdModelName || activePet.mmdModelPath}
+              modelScale={activePet.mmdScale}
+              mood={mood}
+              intensity={config.animation.enabled ? config.animation.intensity : 0}
+            />
+            {renderExpressionLayer()}
+          </>
         ) : currentPetImage ? (
           <>
             <img
@@ -775,13 +852,7 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
               alt={activePet.name}
               draggable={false}
             />
-            {config.animation.expressionEffects && expression !== "neutral" && (
-              <div className={`expression-layer ${expression}`} aria-hidden="true">
-                <span className="mark mark-one" />
-                <span className="mark mark-two" />
-                <span className="mark mark-three" />
-              </div>
-            )}
+            {renderExpressionLayer()}
           </>
         ) : (
           <div className="pet-placeholder">

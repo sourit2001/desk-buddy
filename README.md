@@ -2,6 +2,8 @@
 
 轻量桌宠 MVP，基于 Tauri 2 + React。
 
+完整使用步骤见 [使用说明书.md](./使用说明书.md)。
+
 ## 功能
 
 - Windows/macOS 桌面应用骨架

@@ -53,13 +53,14 @@ button:disabled {
 .pet-actions {
   position: absolute;
   z-index: 20;
-  top: 8px;
-  right: 8px;
+  top: 58%;
+  left: 50%;
+  right: auto;
   display: flex;
-  gap: 6px;
+  gap: 4px;
   opacity: 0;
   pointer-events: none;
-  transform: translateY(-4px);
+  transform: translateX(-50%) translateY(-3px);
   transition:
     opacity 160ms ease,
     transform 160ms ease;
@@ -68,7 +69,7 @@ button:disabled {
 .pet-shell:hover .pet-actions {
   opacity: 1;
   pointer-events: auto;
-  transform: translateY(0);
+  transform: translateX(-50%) translateY(0);
 }
 
 .pet-status {
@@ -114,8 +115,8 @@ button:disabled {
 }
 
 .icon-button {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   border: 1px solid rgba(19, 33, 25, 0.14);
   border-radius: 8px;
   display: inline-grid;
@@ -146,9 +147,12 @@ button:disabled {
 .speech-bubble {
   position: absolute;
   z-index: 15;
-  left: 16px;
-  right: 16px;
-  top: 48px;
+  left: 50%;
+  right: auto;
+  width: min(78vw, 340px);
+  top: 72%;
+  bottom: auto;
+  transform: translateX(-50%);
   max-height: 86px;
   overflow: hidden;
   padding: 10px 12px;
@@ -178,14 +182,14 @@ button:disabled {
 .pet-stage {
   position: absolute;
   left: 50%;
-  top: 52px;
-  bottom: 12px;
-  width: min(92vw, calc(100vh - 64px));
-  max-width: calc(100vw - 24px);
+  top: 4px;
+  bottom: 6px;
+  width: min(96vw, calc(100vh - 10px));
+  max-width: calc(100vw - 8px);
   min-height: 96px;
   transform: translateX(-50%);
   border: 0;
-  padding: 18px;
+  padding: 8px;
   background: transparent;
   display: grid;
   place-items: center;
@@ -285,6 +289,14 @@ button:disabled {
   animation: expression-shy 1.45s ease-in-out infinite;
 }
 
+.pet-stage.expression-bored:not(.walk):not(.greet):not(.nod) .pet-image {
+  animation: expression-bored 1.8s ease-in-out infinite;
+}
+
+.pet-stage.expression-petting:not(.walk):not(.greet):not(.nod) .pet-image {
+  animation: expression-petting 1.25s ease-in-out infinite;
+}
+
 .pet-image {
   width: calc(100% - 10px);
   height: calc(100% - 10px);
@@ -365,7 +377,7 @@ button:disabled {
 .expression-layer {
   position: absolute;
   inset: 0;
-  z-index: 4;
+  z-index: 8;
   pointer-events: none;
 }
 
@@ -375,6 +387,7 @@ button:disabled {
 }
 
 .expression-layer.happy .mark {
+  position: absolute;
   width: 9px;
   height: 9px;
   border-radius: 50%;
@@ -384,25 +397,25 @@ button:disabled {
 }
 
 .expression-layer.happy .mark-one {
-  top: 16%;
+  top: 40%;
   right: 20%;
 }
 
 .expression-layer.happy .mark-two {
-  top: 25%;
+  top: 49%;
   right: 11%;
   animation-delay: 180ms;
 }
 
 .expression-layer.happy .mark-three {
-  top: 9%;
+  top: 31%;
   right: 33%;
   animation-delay: 320ms;
 }
 
 .expression-layer.curious .mark-one,
 .expression-layer.surprised .mark-one {
-  top: 7%;
+  top: 28%;
   right: 16%;
   min-width: 38px;
   height: 38px;
@@ -454,19 +467,19 @@ button:disabled {
 }
 
 .expression-layer.sleepy .mark-one {
-  top: 12%;
+  top: 34%;
   right: 26%;
 }
 
 .expression-layer.sleepy .mark-two {
-  top: 5%;
+  top: 25%;
   right: 14%;
   transform: scale(0.78);
   animation-delay: 320ms;
 }
 
 .expression-layer.sleepy .mark-three {
-  top: 20%;
+  top: 43%;
   right: 8%;
   transform: scale(0.62);
   animation-delay: 620ms;
@@ -493,6 +506,82 @@ button:disabled {
 
 .expression-layer.shy .mark-three {
   display: none;
+}
+
+.expression-layer.bored .mark {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: rgba(124, 139, 164, 0.76);
+  box-shadow: 0 0 0 5px rgba(124, 139, 164, 0.12);
+  animation: bored-dot-drift 1.8s ease-in-out infinite;
+}
+
+.expression-layer.bored .mark-one {
+  top: 38%;
+  right: 26%;
+}
+
+.expression-layer.bored .mark-two {
+  top: 38%;
+  right: 18%;
+  animation-delay: 220ms;
+}
+
+.expression-layer.bored .mark-three {
+  top: 38%;
+  right: 10%;
+  animation-delay: 440ms;
+}
+
+.expression-layer.petting .mark {
+  width: 18px;
+  height: 18px;
+  transform: rotate(-45deg);
+  background: rgba(255, 116, 168, 0.86);
+  box-shadow:
+    0 0 0 5px rgba(255, 116, 168, 0.12),
+    0 8px 18px rgba(255, 92, 150, 0.2);
+  animation: heart-float 1.45s ease-in-out infinite;
+}
+
+.expression-layer.petting .mark::before,
+.expression-layer.petting .mark::after {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: inherit;
+}
+
+.expression-layer.petting .mark::before {
+  left: 0;
+  top: -9px;
+}
+
+.expression-layer.petting .mark::after {
+  left: 9px;
+  top: 0;
+}
+
+.expression-layer.petting .mark-one {
+  top: 40%;
+  right: 18%;
+}
+
+.expression-layer.petting .mark-two {
+  top: 28%;
+  right: 9%;
+  transform: rotate(-45deg) scale(0.72);
+  animation-delay: 220ms;
+}
+
+.expression-layer.petting .mark-three {
+  top: 22%;
+  right: 29%;
+  transform: rotate(-45deg) scale(0.82);
+  animation-delay: 420ms;
 }
 
 .pet-placeholder {
@@ -1138,6 +1227,26 @@ button:disabled {
   }
 }
 
+@keyframes expression-bored {
+  0%,
+  100% {
+    transform: translateY(0) rotate(calc(-1deg * var(--intensity))) scale(0.995);
+  }
+  50% {
+    transform: translateY(calc(5px * var(--intensity))) rotate(calc(1deg * var(--intensity))) scaleX(1.02) scaleY(0.98);
+  }
+}
+
+@keyframes expression-petting {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  42% {
+    transform: translateY(calc(-7px * var(--intensity))) scaleX(1.035) scaleY(0.985);
+  }
+}
+
 @keyframes mark-pop {
   0%,
   100% {
@@ -1185,6 +1294,32 @@ button:disabled {
   50% {
     opacity: 0.86;
     transform: scaleX(1.08);
+  }
+}
+
+@keyframes bored-dot-drift {
+  0%,
+  100% {
+    transform: translateY(4px);
+    opacity: 0.28;
+  }
+  50% {
+    transform: translateY(-5px);
+    opacity: 0.82;
+  }
+}
+
+@keyframes heart-float {
+  0% {
+    transform: translateY(8px) rotate(-45deg) scale(0.62);
+    opacity: 0;
+  }
+  28% {
+    opacity: 0.88;
+  }
+  100% {
+    transform: translateY(-20px) rotate(-45deg) scale(1.02);
+    opacity: 0;
   }
 }
 
