@@ -5,7 +5,7 @@ import { CopyPlus, Eye, ImagePlus, MonitorUp, Plus, Save, SlidersHorizontal, Tra
 import { loadConfig, loadConfigAsync, saveConfig } from "./config";
 import { readFileAsDataUrl, removeImageBackground } from "./imageCutout";
 import { isTauriRuntime } from "./tauriRuntime";
-import { AppConfig, DesktopPet, getActivePet, PetDisplayMode, PetPersonality, RoamMode } from "./types";
+import { AppConfig, defaultConfig, DesktopPet, getActivePet, PetDisplayMode, PetPersonality, RoamMode } from "./types";
 
 const personalityOptions: Array<{ value: PetPersonality; label: string }> = [
   { value: "gentle", label: "温和" },
@@ -124,6 +124,7 @@ export function SettingsWindow() {
       mmdMotionDataUrl: "",
       mmdMotionPath: "",
       mmdMotionName: "",
+      mmdCustomMotions: [],
       mmdMaterialMode: "texture",
       mmdScale: 0.5,
       personality: "gentle",
@@ -226,6 +227,56 @@ export function SettingsWindow() {
     }
   }
 
+  async function addMmdCustomMotions(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? []);
+    if (!files.length) return;
+
+    try {
+      const motions = await Promise.all(
+        files.map(async (file) => {
+          if (!file.name.toLowerCase().endsWith(".vmd")) {
+            throw new Error("自选动作只能添加解压后的 .vmd 文件。");
+          }
+
+          const dataUrl = await readFileAsDataUrl(file);
+          if (isTauriRuntime()) {
+            const asset = await invoke<MmdAsset>("save_mmd_asset", { fileName: file.name, dataUrl });
+            return {
+              id: `motion-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              name: getMmdAssetFileName(asset, file.name),
+              dataUrl: "",
+              path: asset.path,
+            };
+          }
+
+          return {
+            id: `motion-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            name: file.name,
+            dataUrl,
+            path: "",
+          };
+        }),
+      );
+
+      updatePetAndPersist({
+        ...activePet,
+        displayMode: "mmd",
+        mmdCustomMotions: [...activePet.mmdCustomMotions, ...motions],
+      });
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  function removeMmdCustomMotion(motionId: string) {
+    updatePetAndPersist({
+      ...activePet,
+      mmdCustomMotions: activePet.mmdCustomMotions.filter((motion) => motion.id !== motionId),
+    });
+  }
+
   async function persist() {
     try {
       await saveConfig(config);
@@ -252,6 +303,39 @@ export function SettingsWindow() {
       return;
     }
     await invoke("show_pet");
+  }
+
+  async function recoverPetWindow() {
+    const nextConfig = {
+      ...config,
+      window: {
+        ...config.window,
+        width: defaultConfig.window.width,
+        height: defaultConfig.window.height,
+        roamEnabled: false,
+      },
+    };
+
+    updateConfig(nextConfig);
+
+    try {
+      await saveConfig(nextConfig);
+      setSaved(true);
+      setSaveError("");
+      window.setTimeout(() => setSaved(false), 1600);
+
+      if (isTauriRuntime()) {
+        await invoke("recover_pet_window", {
+          width: defaultConfig.window.width,
+          height: defaultConfig.window.height,
+        });
+      } else {
+        window.location.href = "/";
+      }
+    } catch (error) {
+      setSaved(false);
+      setSaveError(error instanceof Error ? error.message : String(error));
+    }
   }
 
   async function openNewInstance() {
@@ -372,11 +456,31 @@ export function SettingsWindow() {
                   选择动作 .vmd
                   <input type="file" accept=".vmd" onChange={updateMmdMotion} />
                 </label>
+                <label className="ghost-button file-button">
+                  <Plus size={16} />
+                  添加自选动作
+                  <input type="file" accept=".vmd" multiple onChange={addMmdCustomMotions} />
+                </label>
               </div>
               <div className="mmd-file-list">
                 <span>模型：{activePet.mmdModelName || "未选择，先显示 3D 预览"}</span>
                 <span>动作：{activePet.mmdMotionName || "未选择，将使用程序化轻动作"}</span>
                 <span>提示：先解压动作包，再选择角色动作 .vmd；不要选择 zip 或 camera.vmd。</span>
+              </div>
+              <div className="custom-motion-list" aria-label="自选动作">
+                <span className="custom-motion-title">自选动作</span>
+                {activePet.mmdCustomMotions.length ? (
+                  activePet.mmdCustomMotions.map((motion) => (
+                    <div className="custom-motion-item" key={motion.id}>
+                      <span title={motion.name}>{motion.name}</span>
+                      <button className="tile-remove" type="button" title="删除动作" onClick={() => removeMmdCustomMotion(motion.id)}>
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <small>还没有添加。添加后会出现在桌宠互动菜单里。</small>
+                )}
               </div>
               <label className="field">
                 <span>MMD 缩放：{activePet.mmdScale.toFixed(2)}x</span>
@@ -402,6 +506,7 @@ export function SettingsWindow() {
                       mmdMotionDataUrl: "",
                       mmdMotionPath: "",
                       mmdMotionName: "",
+                      mmdCustomMotions: [],
                     })
                   }
                 >
@@ -582,6 +687,10 @@ export function SettingsWindow() {
               />
             </label>
           </div>
+          <button className="ghost-button" type="button" onClick={recoverPetWindow}>
+            <MonitorUp size={16} />
+            恢复桌宠位置
+          </button>
           <label className="check-row">
             <input
               type="checkbox"
@@ -734,6 +843,10 @@ export function SettingsWindow() {
           <button className="ghost-button" type="button" onClick={showPetWindow}>
             <MonitorUp size={16} />
             显示桌宠
+          </button>
+          <button className="ghost-button" type="button" onClick={recoverPetWindow}>
+            <MonitorUp size={16} />
+            恢复位置
           </button>
           <button className="ghost-button" type="button" onClick={closeWindow}>
             关闭

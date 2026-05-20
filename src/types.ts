@@ -19,6 +19,13 @@ export type RoamMode = "anywhere" | "edges" | "topBottom" | "leftRight" | "top" 
 export type PetDisplayMode = "image" | "mmd";
 export type MmdMaterialMode = "debug" | "solid" | "texture";
 
+export type MmdCustomMotion = {
+  id: string;
+  name: string;
+  dataUrl: string;
+  path: string;
+};
+
 export type DesktopPet = {
   id: string;
   name: string;
@@ -30,6 +37,7 @@ export type DesktopPet = {
   mmdMotionDataUrl: string;
   mmdMotionPath: string;
   mmdMotionName: string;
+  mmdCustomMotions: MmdCustomMotion[];
   mmdMaterialMode: MmdMaterialMode;
   mmdScale: number;
   personality: PetPersonality;
@@ -86,6 +94,7 @@ export const defaultConfig: AppConfig = {
       mmdMotionDataUrl: "",
       mmdMotionPath: "",
       mmdMotionName: "",
+      mmdCustomMotions: [],
       mmdMaterialMode: "texture",
       mmdScale: 0.5,
       personality: "gentle",

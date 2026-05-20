@@ -6,7 +6,7 @@ use std::{
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder};
 use thiserror::Error;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -224,6 +224,22 @@ async fn show_pet(app: tauri::AppHandle) -> Result<(), AppError> {
 }
 
 #[tauri::command]
+async fn recover_pet_window(app: tauri::AppHandle, width: f64, height: f64) -> Result<(), AppError> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| AppError::Window("找不到桌宠窗口".into()))?;
+
+    window.show().map_err(|error| AppError::Window(error.to_string()))?;
+    window.set_always_on_top(true).map_err(|error| AppError::Window(error.to_string()))?;
+    window
+        .set_size(LogicalSize::new(width, height))
+        .map_err(|error| AppError::Window(error.to_string()))?;
+    window.center().map_err(|error| AppError::Window(error.to_string()))?;
+    window.set_focus().map_err(|error| AppError::Window(error.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn open_new_instance() -> Result<(), AppError> {
     let executable = std::env::current_exe().map_err(|error| AppError::Window(error.to_string()))?;
     Command::new(executable)
@@ -306,6 +322,7 @@ pub fn run() {
             cursor_position,
             show_settings,
             show_pet,
+            recover_pet_window,
             open_new_instance,
             quit_app,
             chat_completion

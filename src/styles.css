@@ -632,12 +632,14 @@ button:disabled {
 .pet-menu {
   position: absolute;
   z-index: 40;
-  width: 132px;
+  width: 154px;
+  max-height: min(380px, calc(100vh - 18px));
   border: 1px solid rgba(19, 33, 25, 0.14);
   border-radius: 8px;
   padding: 6px;
   display: grid;
   gap: 4px;
+  overflow-y: auto;
   background: rgba(255, 255, 255, 0.94);
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.18);
   backdrop-filter: blur(14px);
@@ -656,6 +658,18 @@ button:disabled {
   background: transparent;
   font-size: 13px;
   text-align: left;
+}
+
+.pet-menu button svg {
+  flex: 0 0 auto;
+}
+
+.pet-menu button {
+  overflow: hidden;
+}
+
+.pet-menu button:not(.icon-button) {
+  white-space: nowrap;
 }
 
 .pet-menu button:hover {
@@ -913,6 +927,47 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.custom-motion-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.custom-motion-title {
+  color: #26352d;
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.custom-motion-list small {
+  color: #627168;
+  font-size: 12px;
+}
+
+.custom-motion-item {
+  min-height: 36px;
+  border: 1px solid #d7dfd5;
+  border-radius: 8px;
+  padding: 0 7px 0 10px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 8px;
+  background: #ffffff;
+}
+
+.custom-motion-item > span {
+  overflow: hidden;
+  color: #26352d;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-motion-item .tile-remove {
+  position: static;
 }
 
 .image-tile {

@@ -62,6 +62,19 @@ function normalizePets(value: Partial<AppConfig>, legacyImages: string[]): Deskt
         mmdMotionDataUrl: typeof pet.mmdMotionDataUrl === "string" ? pet.mmdMotionDataUrl : "",
         mmdMotionPath: typeof pet.mmdMotionPath === "string" ? pet.mmdMotionPath : "",
         mmdMotionName: typeof pet.mmdMotionName === "string" ? pet.mmdMotionName : "",
+        mmdCustomMotions: Array.isArray(pet.mmdCustomMotions)
+          ? pet.mmdCustomMotions
+              .map((motion, motionIndex) => ({
+                id:
+                  typeof motion.id === "string" && motion.id.trim()
+                    ? motion.id.trim()
+                    : `motion-${index + 1}-${motionIndex + 1}`,
+                name: typeof motion.name === "string" && motion.name.trim() ? motion.name.trim() : `动作 ${motionIndex + 1}`,
+                dataUrl: typeof motion.dataUrl === "string" ? motion.dataUrl : "",
+                path: typeof motion.path === "string" ? motion.path : "",
+              }))
+              .filter((motion) => motion.dataUrl || motion.path)
+          : [],
         mmdMaterialMode: pet.mmdMaterialMode ?? defaultConfig.pets[0].mmdMaterialMode,
         mmdScale: typeof pet.mmdScale === "number" && Number.isFinite(pet.mmdScale) ? pet.mmdScale : defaultConfig.pets[0].mmdScale,
         personality: pet.personality ?? defaultConfig.pets[0].personality,
@@ -82,6 +95,7 @@ function normalizePets(value: Partial<AppConfig>, legacyImages: string[]): Deskt
       mmdMotionDataUrl: "",
       mmdMotionPath: "",
       mmdMotionName: "",
+      mmdCustomMotions: [],
       mmdMaterialMode: defaultConfig.pets[0].mmdMaterialMode,
       mmdScale: defaultConfig.pets[0].mmdScale,
       personality: defaultConfig.pets[0].personality,
@@ -124,7 +138,13 @@ export async function saveConfig(config: AppConfig) {
       ...nextConfig,
       petImageDataUrl: "",
       petImages: [],
-      pets: nextConfig.pets.map((pet) => ({ ...pet, images: [], mmdModelDataUrl: "", mmdMotionDataUrl: "" })),
+      pets: nextConfig.pets.map((pet) => ({
+        ...pet,
+        images: [],
+        mmdModelDataUrl: "",
+        mmdMotionDataUrl: "",
+        mmdCustomMotions: pet.mmdCustomMotions.map((motion) => ({ ...motion, dataUrl: "" })),
+      })),
     };
     localStorage.setItem(CONFIG_KEY, JSON.stringify(lightweightConfig));
   }

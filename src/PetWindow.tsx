@@ -5,7 +5,7 @@ import { Footprints, Hand, Heart, MessageCircle, Moon, Power, Send, Settings, Sm
 import { loadConfig, loadConfigAsync, saveConfig, subscribeConfig } from "./config";
 import { isTauriRuntime } from "./tauriRuntime";
 import { MmdPet } from "./MmdPet";
-import { AppConfig, getActivePet, PetExpression, PetMood, RoamMode } from "./types";
+import { AppConfig, getActivePet, MmdCustomMotion, PetExpression, PetMood, RoamMode } from "./types";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -38,6 +38,11 @@ type RoamTarget = {
 type CursorPosition = {
   x: number;
   y: number;
+};
+
+type ActiveCustomMotion = {
+  motion: MmdCustomMotion;
+  trigger: number;
 };
 
 type RoamEdge = "top" | "right" | "bottom" | "left";
@@ -320,6 +325,7 @@ export function PetWindow() {
   const [petState, setPetState] = useState<PetRuntimeState>(defaultPetState);
   const [petMenu, setPetMenu] = useState<PetMenu | null>(null);
   const [gaze, setGaze] = useState({ x: 0, y: 0 });
+  const [activeCustomMotion, setActiveCustomMotion] = useState<ActiveCustomMotion | null>(null);
   const interactionTimeoutRef = useRef<number>();
   const idleActionStartTimeoutRef = useRef<number>();
   const expressionTimeoutRef = useRef<number>();
@@ -673,7 +679,7 @@ export function PetWindow() {
 
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault();
-    setPetMenu({ x: Math.min(event.clientX, window.innerWidth - 142), y: Math.min(event.clientY, window.innerHeight - 258) });
+    setPetMenu({ x: Math.min(event.clientX, window.innerWidth - 164), y: Math.min(event.clientY, window.innerHeight - 258) });
   }
 
   function toggleInteractionMenu(event: MouseEvent<HTMLButtonElement>) {
@@ -682,10 +688,21 @@ export function PetWindow() {
       current
         ? null
         : {
-            x: Math.max(8, window.innerWidth - 148),
+            x: Math.max(8, window.innerWidth - 170),
             y: 46,
           },
     );
+  }
+
+  function runCustomMotion(motion: MmdCustomMotion) {
+    setPetMenu(null);
+    setActiveCustomMotion({ motion, trigger: Date.now() });
+    commitPetState((state) => ({
+      affection: clamp(state.affection + 1),
+      energy: clamp(state.energy - 1),
+      lastInteractionAt: Date.now(),
+    }));
+    interact(`动作：${motion.name}`, "happy", "happy");
   }
 
   function runInteraction(kind: "pet" | "feed" | "nap" | "play" | "chat" | "walk" | "greet" | "nod" | "kiss") {
@@ -1035,6 +1052,10 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
               intensity={config.animation.enabled ? config.animation.intensity : 0}
               gaze={gaze}
               gazeFollowMouse={config.animation.gazeFollowMouse}
+              customMotionDataUrl={activeCustomMotion?.motion.dataUrl ?? ""}
+              customMotionPath={activeCustomMotion?.motion.path ?? ""}
+              customMotionName={activeCustomMotion?.motion.name ?? ""}
+              customMotionTrigger={activeCustomMotion?.trigger ?? 0}
             />
             {renderExpressionLayer()}
           </>
@@ -1092,6 +1113,13 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
             <Smile size={15} />
             点点头
           </button>
+          {isMmdMode &&
+            activePet.mmdCustomMotions.map((motion) => (
+              <button type="button" key={motion.id} onClick={() => runCustomMotion(motion)}>
+                <Sparkles size={15} />
+                {motion.name}
+              </button>
+            ))}
           <button type="button" onClick={() => runInteraction("chat")}>
             <MessageCircle size={15} />
             聊天

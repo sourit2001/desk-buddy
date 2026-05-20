@@ -46,6 +46,10 @@ type MmdPetProps = {
   intensity: number;
   gaze: { x: number; y: number };
   gazeFollowMouse: boolean;
+  customMotionDataUrl: string;
+  customMotionPath: string;
+  customMotionName: string;
+  customMotionTrigger: number;
 };
 
 type HelperMeshState = {
@@ -324,6 +328,12 @@ function loadMmdMesh(
 async function resolveAssetSource(path: string, dataUrl: string) {
   if (path && isTauriRuntime()) return invoke<string>("read_mmd_asset", { path });
   return dataUrl;
+}
+
+async function createMotionObjectUrl(path: string, dataUrl: string) {
+  const source = await resolveAssetSource(path, dataUrl);
+  if (!source) return "";
+  return URL.createObjectURL(new Blob([await dataUrlToArrayBuffer(source)], { type: "application/octet-stream" }));
 }
 
 function fitObjectToView(object: Group | SkinnedMesh, camera: PerspectiveCamera, modelScale: number) {
@@ -855,10 +865,27 @@ function stopMotionClip(helper: MMDAnimationHelper, mesh: SkinnedMesh | null) {
   mixer.uncacheRoot(mesh);
 }
 
-export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, motionName, modelName, modelScale, mood, intensity, gaze, gazeFollowMouse }: MmdPetProps) {
+export function MmdPet({
+  modelDataUrl,
+  modelPath,
+  motionDataUrl,
+  motionPath,
+  motionName,
+  modelName,
+  modelScale,
+  mood,
+  intensity,
+  gaze,
+  gazeFollowMouse,
+  customMotionDataUrl,
+  customMotionPath,
+  customMotionName,
+  customMotionTrigger,
+}: MmdPetProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const moodRef = useRef(mood);
   const gazeRef = useRef(gaze);
+  const customMotionRef = useRef({ dataUrl: customMotionDataUrl, path: customMotionPath, name: customMotionName, trigger: customMotionTrigger });
   const [status, setStatus] = useState(modelPath || modelDataUrl ? "加载 MMD" : "MMD 预览");
 
   useEffect(() => {
@@ -868,6 +895,10 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
   useEffect(() => {
     gazeRef.current = gaze;
   }, [gaze]);
+
+  useEffect(() => {
+    customMotionRef.current = { dataUrl: customMotionDataUrl, path: customMotionPath, name: customMotionName, trigger: customMotionTrigger };
+  }, [customMotionDataUrl, customMotionPath, customMotionName, customMotionTrigger]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -892,6 +923,9 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
     let activeMotionMood: PetMood | null = null;
     let previousMotionMood: PetMood | null = null;
     let defaultMotionClip: AnimationClip | undefined;
+    let customMotionObjectUrl = "";
+    let lastCustomMotionTrigger = customMotionRef.current.trigger;
+    let loadingCustomMotionTrigger = 0;
     const builtInMotionClips = new Map<PetMood, AnimationClip>();
     const currentGaze = { x: 0, y: 0 };
     const idleLook = { x: 0, y: 0 };
@@ -901,6 +935,39 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
     let nextIdleLookAt = 0;
     let blinkStartedAt = -10;
     let nextBlinkAt = 1.8 + Math.random() * 2.4;
+    let loader: MMDLoader | null = null;
+
+    const playCustomMotion = async () => {
+      const request = customMotionRef.current;
+      if (!activeMesh || !loader || !request.trigger || request.trigger === loadingCustomMotionTrigger || (!request.path && !request.dataUrl)) return;
+
+      loadingCustomMotionTrigger = request.trigger;
+      const label = request.name || "自选动作";
+      setStatus(`正在读取自选动作：${label}`);
+      try {
+        if (customMotionObjectUrl) URL.revokeObjectURL(customMotionObjectUrl);
+        customMotionObjectUrl = await createMotionObjectUrl(request.path, request.dataUrl);
+        if (!customMotionObjectUrl || disposed || !activeMesh || !loader) return;
+
+        loader.loadAnimation(
+          customMotionObjectUrl,
+          activeMesh,
+          (animation) => {
+            if (disposed || !activeMesh) return;
+            playMotionClip(helper, activeMesh, animation as AnimationClip, false);
+            setStatus(`自选动作：${label}`);
+          },
+          (event) => {
+            if (!disposed) setStatus(`正在读取自选动作：${label}${formatLoadProgress(event)}`);
+          },
+          (error) => {
+            if (!disposed) setStatus(`自选动作失败：${formatMmdError(error)}`);
+          },
+        );
+      } catch (error) {
+        if (!disposed) setStatus(`自选动作失败：${formatMmdError(error)}`);
+      }
+    };
 
     renderer.setClearColor(0x000000, 0);
     renderer.outputColorSpace = SRGBColorSpace;
@@ -962,6 +1029,13 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
         } else if (currentMood === "idle") {
           stopMotionClip(helper, activeMesh);
         }
+      }
+      const customMotionRequest = customMotionRef.current;
+      if (activeMesh && customMotionRequest.trigger !== lastCustomMotionTrigger) {
+        lastCustomMotionTrigger = customMotionRequest.trigger;
+        playCustomMotion().catch((error) => {
+          if (!disposed) setStatus(`自选动作失败：${formatMmdError(error)}`);
+        });
       }
       if (currentMood !== currentPoseMood) {
         currentPoseMood = currentMood;
@@ -1053,7 +1127,7 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
 
           source = preparedSource;
           setStatus(`正在加载模型：${preparedSource.modelLabel}`);
-          const loader = new MMDLoader(preparedSource.manager);
+          loader = new MMDLoader(preparedSource.manager);
           loader.setResourcePath(isZipSource(modelName) ? zipBaseUrl : fileBaseUrl);
           loadMmdMesh(
             loader,
@@ -1140,6 +1214,7 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
       helper.meshes.slice().forEach((mesh) => helper.remove(mesh));
       renderer.dispose();
       renderer.domElement.remove();
+      if (customMotionObjectUrl) URL.revokeObjectURL(customMotionObjectUrl);
       scene.traverse((object) => {
         const mesh = object as Mesh;
         mesh.geometry?.dispose();
