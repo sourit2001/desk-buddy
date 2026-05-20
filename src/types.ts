@@ -1,4 +1,18 @@
-export type PetMood = "idle" | "thinking" | "speaking" | "clicked" | "stretch" | "wiggle" | "hop" | "walk" | "greet" | "nod";
+export type PetMood =
+  | "idle"
+  | "thinking"
+  | "speaking"
+  | "clicked"
+  | "happy"
+  | "stretch"
+  | "wiggle"
+  | "hop"
+  | "walk"
+  | "greet"
+  | "nod"
+  | "kiss"
+  | "chinRest"
+  | "work";
 export type PetExpression = "neutral" | "happy" | "curious" | "sleepy" | "surprised" | "shy" | "bored" | "petting";
 export type PetPersonality = "gentle" | "lively" | "cool" | "clingy";
 export type RoamMode = "anywhere" | "edges" | "topBottom" | "leftRight" | "top" | "bottom" | "left" | "right" | "middle";
@@ -44,6 +58,7 @@ export type AppConfig = {
     imageSwitchSeconds: number;
     framePlayback: boolean;
     expressionEffects: boolean;
+    gazeFollowMouse: boolean;
   };
   imageProcessing: {
     removeBackground: boolean;
@@ -81,8 +96,8 @@ export const defaultConfig: AppConfig = {
   petImages: [],
   petName: "桌宠",
   window: {
-    width: 500,
-    height: 500,
+    width: 280,
+    height: 340,
     alwaysOnTop: true,
     roamEnabled: false,
     roamMode: "edges",
@@ -96,6 +111,7 @@ export const defaultConfig: AppConfig = {
     imageSwitchSeconds: 1.2,
     framePlayback: true,
     expressionEffects: true,
+    gazeFollowMouse: true,
   },
   imageProcessing: {
     removeBackground: false,

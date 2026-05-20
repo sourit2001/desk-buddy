@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   AmbientLight,
+  AnimationClip,
+  AnimationMixer,
   Box3,
   BoxGeometry,
   CanvasTexture,
@@ -10,12 +12,15 @@ import {
   DirectionalLight,
   Group,
   LoadingManager,
+  LoopOnce,
   Material,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
   PerspectiveCamera,
+  PlaneGeometry,
   Scene,
+  ShadowMaterial,
   SkinnedMesh,
   SRGBColorSpace,
   Vector3,
@@ -39,6 +44,12 @@ type MmdPetProps = {
   modelScale: number;
   mood: PetMood;
   intensity: number;
+  gaze: { x: number; y: number };
+  gazeFollowMouse: boolean;
+};
+
+type HelperMeshState = {
+  mixer?: AnimationMixer;
 };
 
 type MmdModelSource = {
@@ -53,14 +64,23 @@ type MmdModelSource = {
 
 type ProceduralBone = {
   bone: SkinnedMesh["skeleton"]["bones"][number];
+  baseX: number;
+  baseY: number;
+  baseZ: number;
   previousX: number;
   previousY: number;
   previousZ: number;
 };
 
 type ProceduralRig = {
+  root?: ProceduralBone;
+  center?: ProceduralBone;
+  groove?: ProceduralBone;
   head?: ProceduralBone;
   neck?: ProceduralBone;
+  bothEyes?: ProceduralBone;
+  rightEye?: ProceduralBone;
+  leftEye?: ProceduralBone;
   upperBody?: ProceduralBone;
   upperBody2?: ProceduralBone;
   rightArm?: ProceduralBone;
@@ -71,6 +91,27 @@ type ProceduralRig = {
   leftWrist?: ProceduralBone;
   rightLeg?: ProceduralBone;
   leftLeg?: ProceduralBone;
+};
+
+type BoneRestPose = {
+  bone: SkinnedMesh["skeleton"]["bones"][number];
+  positionX: number;
+  positionY: number;
+  positionZ: number;
+  quaternionX: number;
+  quaternionY: number;
+  quaternionZ: number;
+  quaternionW: number;
+};
+
+type BlinkMorphTarget = {
+  influences: number[];
+  index: number;
+};
+
+type MorphRestPose = {
+  influences: number[];
+  values: number[];
 };
 
 function formatMmdError(error: unknown) {
@@ -92,6 +133,18 @@ const zipBaseUrl = "mmdzip://model/";
 const fileBaseUrl = "mmdfile://model/";
 const fallbackTextureDataUrl =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=";
+
+const builtInMotionUrls: Partial<Record<PetMood, string>> = {
+  clicked: "/mmd-motions/petting.vmd",
+  happy: "/mmd-motions/happy.vmd",
+  thinking: "/mmd-motions/thinking.vmd",
+  speaking: "/mmd-motions/happy.vmd",
+  stretch: "/mmd-motions/stretch.vmd",
+  hop: "/mmd-motions/happy.vmd",
+  kiss: "/mmd-motions/kiss.vmd",
+  chinRest: "/mmd-motions/thinking.vmd",
+  work: "/mmd-motions/thinking.vmd",
+};
 
 async function isMmdModelFile(file: JSZip.JSZipObject) {
   if (/\.(pmx|pmd)$/i.test(file.name)) return true;
@@ -123,7 +176,7 @@ function shouldUseFallbackTexture(path: string) {
 }
 
 function normalizeZipPath(path: string) {
-  return path.replaceAll("\\", "/").replace(/^\/+/, "");
+  return path.replace(/\\/g, "/").replace(/^\/+/, "");
 }
 
 function getPathBaseName(path: string) {
@@ -288,9 +341,9 @@ function fitObjectToView(object: Group | SkinnedMesh, camera: PerspectiveCamera,
   const distance = camera.position.z;
   const verticalView = 2 * Math.tan((camera.fov * Math.PI) / 360) * distance;
   const horizontalView = verticalView * camera.aspect;
-  const scale = Math.min((verticalView * 0.82) / height, (horizontalView * 0.82) / width) * modelScale;
+  const scale = Math.min((verticalView * 0.9) / height, (horizontalView * 0.88) / width) * modelScale;
   object.scale.setScalar(scale);
-  object.position.set(-center.x * scale, -center.y * scale - verticalView * 0.03, -center.z * scale);
+  object.position.set(-center.x * scale, -center.y * scale + verticalView * 0.1, -center.z * scale);
 
   return { height, scale, width };
 }
@@ -306,8 +359,8 @@ function keepObjectInView(object: Group | SkinnedMesh, camera: PerspectiveCamera
   const verticalView = 2 * Math.tan((camera.fov * Math.PI) / 360) * distance;
   const horizontalView = verticalView * camera.aspect;
   const paddingX = horizontalView * 0.08;
-  const paddingTop = verticalView * 0.08;
-  const paddingBottom = verticalView * 0.03;
+  const paddingTop = verticalView * 0.01;
+  const paddingBottom = verticalView * 0.13;
   const minX = -horizontalView / 2 + paddingX;
   const maxX = horizontalView / 2 - paddingX;
   const minY = -verticalView / 2 + paddingBottom;
@@ -489,13 +542,29 @@ function fixMmdMaterials(object: Group | SkinnedMesh, onTextureApplied?: () => v
 
 function createProceduralBone(mesh: SkinnedMesh, names: string[]): ProceduralBone | undefined {
   const bone = mesh.skeleton?.bones.find((candidate) => names.includes(candidate.name));
-  return bone ? { bone, previousX: 0, previousY: 0, previousZ: 0 } : undefined;
+  return bone
+    ? {
+        bone,
+        baseX: bone.rotation.x,
+        baseY: bone.rotation.y,
+        baseZ: bone.rotation.z,
+        previousX: 0,
+        previousY: 0,
+        previousZ: 0,
+      }
+    : undefined;
 }
 
 function createProceduralRig(mesh: SkinnedMesh): ProceduralRig {
   return {
+    root: createProceduralBone(mesh, ["全ての親", "全親", "root", "Root", "全親ボーン"]),
+    center: createProceduralBone(mesh, ["センター", "中心", "center", "Center"]),
+    groove: createProceduralBone(mesh, ["グルーブ", "groove", "Groove"]),
     head: createProceduralBone(mesh, ["頭", "head", "Head"]),
     neck: createProceduralBone(mesh, ["首", "neck", "Neck"]),
+    bothEyes: createProceduralBone(mesh, ["両目", "両眼", "eyes", "Eyes", "BothEyes", "Both_eyes"]),
+    rightEye: createProceduralBone(mesh, ["右目", "右眼", "right eye", "RightEye", "Right_eye"]),
+    leftEye: createProceduralBone(mesh, ["左目", "左眼", "left eye", "LeftEye", "Left_eye"]),
     upperBody: createProceduralBone(mesh, ["上半身", "upper body", "UpperBody", "Spine"]),
     upperBody2: createProceduralBone(mesh, ["上半身2", "upper body2", "UpperBody2", "Chest"]),
     rightArm: createProceduralBone(mesh, ["右腕", "右腕捩", "right arm", "RightArm", "Right_arm"]),
@@ -513,6 +582,92 @@ function getProceduralBoneCount(rig: ProceduralRig) {
   return Object.values(rig).filter(Boolean).length;
 }
 
+function captureRestPose(mesh: SkinnedMesh): BoneRestPose[] {
+  return (
+    mesh.skeleton?.bones.map((bone) => ({
+      bone,
+      positionX: bone.position.x,
+      positionY: bone.position.y,
+      positionZ: bone.position.z,
+      quaternionX: bone.quaternion.x,
+      quaternionY: bone.quaternion.y,
+      quaternionZ: bone.quaternion.z,
+      quaternionW: bone.quaternion.w,
+    })) ?? []
+  );
+}
+
+function restoreRestPose(restPose: BoneRestPose[]) {
+  restPose.forEach((pose) => {
+    pose.bone.position.set(pose.positionX, pose.positionY, pose.positionZ);
+    pose.bone.quaternion.set(pose.quaternionX, pose.quaternionY, pose.quaternionZ, pose.quaternionW);
+    pose.bone.updateMatrixWorld(true);
+  });
+}
+
+function captureMorphRestPose(mesh: SkinnedMesh): MorphRestPose[] {
+  const restPose: MorphRestPose[] = [];
+
+  mesh.traverse((child) => {
+    const morphMesh = child as Mesh & { morphTargetInfluences?: number[] };
+    if (morphMesh.morphTargetInfluences) {
+      restPose.push({ influences: morphMesh.morphTargetInfluences, values: [...morphMesh.morphTargetInfluences] });
+    }
+  });
+
+  return restPose;
+}
+
+function restoreMorphRestPose(restPose: MorphRestPose[]) {
+  restPose.forEach((pose) => {
+    pose.values.forEach((value, index) => {
+      pose.influences[index] = value;
+    });
+  });
+}
+
+function findBlinkMorphTargets(mesh: SkinnedMesh): BlinkMorphTarget[] {
+  const blinkNames = ["まばたき", "瞬き", "blink", "Blink", "BLINK", "eyeclose", "EyeClose", "eye close"];
+  const targets: BlinkMorphTarget[] = [];
+
+  mesh.traverse((child) => {
+    const morphMesh = child as Mesh & {
+      morphTargetDictionary?: Record<string, number>;
+      morphTargetInfluences?: number[];
+    };
+    if (!morphMesh.morphTargetDictionary || !morphMesh.morphTargetInfluences) return;
+
+    const match = blinkNames
+      .map((name) => morphMesh.morphTargetDictionary?.[name])
+      .find((index): index is number => typeof index === "number");
+
+    if (match !== undefined) {
+      targets.push({ influences: morphMesh.morphTargetInfluences, index: match });
+    }
+  });
+
+  return targets;
+}
+
+function applyBlinkMorph(targets: BlinkMorphTarget[], elapsed: number, blinkStartedAt: number) {
+  if (!targets.length) return;
+  const blinkElapsed = elapsed - blinkStartedAt;
+  const closeDuration = 0.045;
+  const openDuration = 0.085;
+  const blinkDuration = closeDuration + openDuration;
+  let value = 0;
+
+  if (blinkElapsed >= 0 && blinkElapsed <= closeDuration) {
+    value = smoothStep(blinkElapsed / closeDuration);
+  } else if (blinkElapsed > closeDuration && blinkElapsed <= blinkDuration) {
+    value = 1 - smoothStep((blinkElapsed - closeDuration) / openDuration);
+  }
+
+  targets.forEach((target) => {
+    target.influences[target.index] = value;
+  });
+}
+
 function resetProceduralBone(bone?: ProceduralBone) {
   if (!bone) return;
   bone.bone.rotation.x -= bone.previousX;
@@ -528,9 +683,9 @@ function addProceduralBoneRotation(bone: ProceduralBone | undefined, x = 0, y = 
   bone.bone.rotation.x += x;
   bone.bone.rotation.y += y;
   bone.bone.rotation.z += z;
-  bone.previousX = x;
-  bone.previousY = y;
-  bone.previousZ = z;
+  bone.previousX += x;
+  bone.previousY += y;
+  bone.previousZ += z;
 }
 
 function resetProceduralRig(rig: ProceduralRig | null) {
@@ -538,40 +693,181 @@ function resetProceduralRig(rig: ProceduralRig | null) {
   Object.values(rig).forEach(resetProceduralBone);
 }
 
-function applyProceduralRig(rig: ProceduralRig | null, mood: PetMood, elapsed: number, intensity: number) {
+function smoothStep(value: number) {
+  const clamped = Math.max(0, Math.min(1, value));
+  return clamped * clamped * (3 - 2 * clamped);
+}
+
+function addPoseBoneRotation(bone: ProceduralBone | undefined, weight: number, x = 0, y = 0, z = 0) {
+  addProceduralBoneRotation(bone, x * weight, y * weight, z * weight);
+}
+
+function stabilizeFacing(rig: ProceduralRig | null) {
+  if (!rig) return;
+
+  [rig.root, rig.center, rig.groove].forEach((bone) => {
+    if (!bone) return;
+    const yaw = bone.bone.rotation.y;
+    if (Math.abs(yaw) > 0.55) bone.bone.rotation.y -= yaw;
+  });
+}
+
+function neutralizeEyePose(rig: ProceduralRig | null) {
+  if (!rig) return;
+
+  [rig.bothEyes, rig.leftEye, rig.rightEye].forEach((bone) => {
+    if (!bone) return;
+    bone.bone.rotation.x = bone.baseX;
+    bone.bone.rotation.y = bone.baseY;
+    bone.bone.rotation.z = bone.baseZ;
+    bone.previousX = 0;
+    bone.previousY = 0;
+    bone.previousZ = 0;
+  });
+}
+
+function applyProceduralRig(
+  rig: ProceduralRig | null,
+  mood: PetMood,
+  elapsed: number,
+  poseElapsed: number,
+  intensity: number,
+  gaze: { x: number; y: number },
+) {
   if (!rig) return;
 
   const strength = Math.max(0.35, intensity);
-  if (mood === "greet") {
-    const wave = Math.sin(elapsed * 12);
-    const sway = Math.sin(elapsed * 7);
-    addProceduralBoneRotation(rig.upperBody2 ?? rig.upperBody, 0, 0, sway * 0.08 * strength);
-    addProceduralBoneRotation(rig.rightArm, -0.75 * strength, 0.15 * strength, -0.45 * strength + wave * 0.16 * strength);
-    addProceduralBoneRotation(rig.rightElbow, -0.82 * strength + wave * 0.2 * strength, 0, 0);
-    addProceduralBoneRotation(rig.rightWrist, wave * 0.28 * strength, 0, wave * 0.25 * strength);
+  const gazeStrength = Math.min(1, 0.42 + strength * 0.38);
+  const screenEyeLift = 0.58;
+  const eyeGazeY = gaze.y + screenEyeLift;
+  addProceduralBoneRotation(rig.neck, -gaze.y * 0.1 * gazeStrength, gaze.x * 0.18 * gazeStrength, 0);
+  addProceduralBoneRotation(rig.head, -gaze.y * 0.26 * gazeStrength, gaze.x * 0.38 * gazeStrength, -gaze.x * 0.05 * gazeStrength);
+  if (rig.bothEyes) {
+    addProceduralBoneRotation(rig.bothEyes, eyeGazeY * 0.14 * gazeStrength, gaze.x * 0.26 * gazeStrength, 0);
+  } else {
+    addProceduralBoneRotation(rig.leftEye, eyeGazeY * 0.12 * gazeStrength, gaze.x * 0.22 * gazeStrength, 0);
+    addProceduralBoneRotation(rig.rightEye, eyeGazeY * 0.12 * gazeStrength, gaze.x * 0.22 * gazeStrength, 0);
+  }
+
+  const poseWeight = smoothStep(poseElapsed / 0.72) * strength;
+  const poseWave = Math.sin(poseElapsed * 2.2);
+  const slowWave = Math.sin(poseElapsed * 1.25);
+
+  if (mood === "idle") {
+    addPoseBoneRotation(rig.upperBody, poseWeight, 0.025, 0, 0);
+    addPoseBoneRotation(rig.upperBody2, poseWeight, 0.018, 0, 0);
+    addPoseBoneRotation(rig.neck, poseWeight, -0.025, 0, 0);
+    addPoseBoneRotation(rig.head, poseWeight, -0.035, 0, 0);
+    addPoseBoneRotation(rig.rightArm, poseWeight, -0.2, -0.035, -0.08);
+    addPoseBoneRotation(rig.leftArm, poseWeight, -0.2, 0.035, 0.08);
+    addPoseBoneRotation(rig.rightElbow, poseWeight, -0.12, 0, 0.025);
+    addPoseBoneRotation(rig.leftElbow, poseWeight, -0.12, 0, -0.025);
+    addPoseBoneRotation(rig.rightWrist, poseWeight, -0.035, 0, -0.025);
+    addPoseBoneRotation(rig.leftWrist, poseWeight, -0.035, 0, 0.025);
+  } else if (mood === "greet" || mood === "kiss") {
+    const wave = Math.sin(poseElapsed * 12);
+    const sway = Math.sin(poseElapsed * 7);
+    addPoseBoneRotation(rig.upperBody2 ?? rig.upperBody, poseWeight, 0, 0, sway * 0.07);
+    addPoseBoneRotation(rig.rightArm, poseWeight, -0.58, 0.1, -0.34 + wave * 0.12);
+    addPoseBoneRotation(rig.rightElbow, poseWeight, -0.62 + wave * 0.16, 0, 0);
+    addPoseBoneRotation(rig.rightWrist, poseWeight, wave * 0.2, 0, wave * 0.2);
   } else if (mood === "nod") {
-    const bob = Math.sin(elapsed * 10);
-    addProceduralBoneRotation(rig.neck, bob * 0.13 * strength, 0, 0);
-    addProceduralBoneRotation(rig.head, bob * 0.2 * strength, 0, 0);
-    addProceduralBoneRotation(rig.upperBody2 ?? rig.upperBody, bob * 0.05 * strength, 0, 0);
+    const bob = Math.sin(poseElapsed * 10);
+    addPoseBoneRotation(rig.neck, poseWeight, bob * 0.1, 0, 0);
+    addPoseBoneRotation(rig.head, poseWeight, bob * 0.16, 0, 0);
+    addPoseBoneRotation(rig.upperBody2 ?? rig.upperBody, poseWeight, bob * 0.04, 0, 0);
   } else if (mood === "walk") {
-    const step = Math.sin(elapsed * 9);
-    addProceduralBoneRotation(rig.upperBody, 0, 0, step * 0.06 * strength);
-    addProceduralBoneRotation(rig.rightLeg, step * 0.24 * strength, 0, 0);
-    addProceduralBoneRotation(rig.leftLeg, -step * 0.24 * strength, 0, 0);
-    addProceduralBoneRotation(rig.rightArm, -step * 0.14 * strength, 0, 0);
-    addProceduralBoneRotation(rig.leftArm, step * 0.14 * strength, 0, 0);
+    const step = Math.sin(poseElapsed * 9);
+    const lift = Math.abs(step);
+    addPoseBoneRotation(rig.upperBody, poseWeight, 0.035, 0, step * 0.075);
+    addPoseBoneRotation(rig.upperBody2, poseWeight, 0.018, 0, -step * 0.045);
+    addPoseBoneRotation(rig.rightLeg, poseWeight, step * 0.3, 0, lift * 0.035);
+    addPoseBoneRotation(rig.leftLeg, poseWeight, -step * 0.3, 0, -lift * 0.035);
+    addPoseBoneRotation(rig.rightArm, poseWeight, -step * 0.2, 0, -0.04);
+    addPoseBoneRotation(rig.leftArm, poseWeight, step * 0.2, 0, 0.04);
+  } else if (mood === "chinRest") {
+    addPoseBoneRotation(rig.upperBody, poseWeight, 0.1 + poseWave * 0.012, -0.035, -0.035);
+    addPoseBoneRotation(rig.upperBody2, poseWeight, 0.075 + poseWave * 0.01, -0.025, -0.03);
+    addPoseBoneRotation(rig.neck, poseWeight, 0.09 + poseWave * 0.018, 0.035 + slowWave * 0.012, -0.025);
+    addPoseBoneRotation(rig.head, poseWeight, 0.13 + poseWave * 0.025, 0.06 + slowWave * 0.018, -0.08);
+    addPoseBoneRotation(rig.rightArm, poseWeight, -0.48, -0.12, -0.26);
+    addPoseBoneRotation(rig.rightElbow, poseWeight, -0.72, 0.05, 0.1 + poseWave * 0.025);
+    addPoseBoneRotation(rig.rightWrist, poseWeight, -0.12 + poseWave * 0.025, -0.08, 0.14);
+    addPoseBoneRotation(rig.leftArm, poseWeight, -0.18, 0.035, 0.1);
+    addPoseBoneRotation(rig.leftElbow, poseWeight, -0.18, 0, 0.04);
+  } else if (mood === "work") {
+    const tap = Math.sin(poseElapsed * 16);
+    const glance = Math.sin(poseElapsed * 2.7);
+    addPoseBoneRotation(rig.upperBody, poseWeight, 0.09 + poseWave * 0.01, 0, 0);
+    addPoseBoneRotation(rig.upperBody2, poseWeight, 0.06, glance * 0.025, 0);
+    addPoseBoneRotation(rig.neck, poseWeight, 0.09 + poseWave * 0.012, glance * 0.045, 0);
+    addPoseBoneRotation(rig.head, poseWeight, 0.14 + poseWave * 0.016, glance * 0.065, 0);
+    addPoseBoneRotation(rig.rightArm, poseWeight, -0.42, -0.04, -0.1);
+    addPoseBoneRotation(rig.leftArm, poseWeight, -0.42, 0.04, 0.1);
+    addPoseBoneRotation(rig.rightElbow, poseWeight, -0.42, 0, 0.04);
+    addPoseBoneRotation(rig.leftElbow, poseWeight, -0.42, 0, -0.04);
+    addPoseBoneRotation(rig.rightWrist, poseWeight, tap * 0.09, 0, -0.045);
+    addPoseBoneRotation(rig.leftWrist, poseWeight, -tap * 0.08, 0, 0.045);
   }
 }
 
-export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, motionName, modelName, modelScale, mood, intensity }: MmdPetProps) {
+function setShadowCasting(object: Group | SkinnedMesh, castShadow: boolean, receiveShadow: boolean) {
+  object.traverse((child) => {
+    const mesh = child as Mesh;
+    if (!mesh.isMesh) return;
+    mesh.castShadow = castShadow;
+    mesh.receiveShadow = receiveShadow;
+  });
+}
+
+function getHelperMeshState(helper: MMDAnimationHelper, mesh: SkinnedMesh): HelperMeshState | undefined {
+  return (helper as unknown as { objects: WeakMap<SkinnedMesh, HelperMeshState> }).objects.get(mesh);
+}
+
+function getOrCreateMixer(helper: MMDAnimationHelper, mesh: SkinnedMesh) {
+  const state = getHelperMeshState(helper, mesh);
+  if (!state) return null;
+  if (!state.mixer) state.mixer = new AnimationMixer(mesh);
+  return state.mixer;
+}
+
+function playMotionClip(helper: MMDAnimationHelper, mesh: SkinnedMesh | null, clip: AnimationClip | undefined, loop: boolean) {
+  if (!mesh || !clip) return false;
+  const mixer = getOrCreateMixer(helper, mesh);
+  if (!mixer) return false;
+
+  mixer.stopAllAction();
+  const action = mixer.clipAction(clip);
+  action.reset();
+  action.enabled = true;
+  action.clampWhenFinished = !loop;
+  if (!loop) action.setLoop(LoopOnce, 1);
+  action.play();
+  return true;
+}
+
+function stopMotionClip(helper: MMDAnimationHelper, mesh: SkinnedMesh | null) {
+  if (!mesh) return;
+  const mixer = getOrCreateMixer(helper, mesh);
+  if (!mixer) return;
+  mixer.stopAllAction();
+  mixer.update(0);
+  mixer.uncacheRoot(mesh);
+}
+
+export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, motionName, modelName, modelScale, mood, intensity, gaze, gazeFollowMouse }: MmdPetProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const moodRef = useRef(mood);
+  const gazeRef = useRef(gaze);
   const [status, setStatus] = useState(modelPath || modelDataUrl ? "加载 MMD" : "MMD 预览");
 
   useEffect(() => {
     moodRef.current = mood;
   }, [mood]);
+
+  useEffect(() => {
+    gazeRef.current = gaze;
+  }, [gaze]);
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -589,10 +885,27 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
     let animationFrame = 0;
     let source: MmdModelSource | null = null;
     let proceduralRig: ProceduralRig | null = null;
+    let restPose: BoneRestPose[] = [];
+    let morphRestPose: MorphRestPose[] = [];
+    let blinkMorphTargets: BlinkMorphTarget[] = [];
+    let activeMesh: SkinnedMesh | null = null;
+    let activeMotionMood: PetMood | null = null;
+    let previousMotionMood: PetMood | null = null;
+    let defaultMotionClip: AnimationClip | undefined;
+    const builtInMotionClips = new Map<PetMood, AnimationClip>();
+    const currentGaze = { x: 0, y: 0 };
+    const idleLook = { x: 0, y: 0 };
+    const idleLookTarget = { x: 0, y: 0 };
+    let currentPoseMood: PetMood = moodRef.current;
+    let poseStartedAt = 0;
+    let nextIdleLookAt = 0;
+    let blinkStartedAt = -10;
+    let nextBlinkAt = 1.8 + Math.random() * 2.4;
 
     renderer.setClearColor(0x000000, 0);
     renderer.outputColorSpace = SRGBColorSpace;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
     mount.appendChild(renderer.domElement);
 
     camera.position.set(0, 0.25, 7.2);
@@ -600,13 +913,31 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
 
     const keyLight = new DirectionalLight(0xffffff, 1.55);
     keyLight.position.set(2.4, 3.2, 4.2);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(1024, 1024);
+    keyLight.shadow.camera.near = 0.5;
+    keyLight.shadow.camera.far = 12;
+    keyLight.shadow.camera.left = -3.5;
+    keyLight.shadow.camera.right = 3.5;
+    keyLight.shadow.camera.top = 3.5;
+    keyLight.shadow.camera.bottom = -3.5;
     scene.add(keyLight);
 
     const rimLight = new DirectionalLight(0x9fd8ff, 0.85);
     rimLight.position.set(-2.8, 2.4, -2.2);
     scene.add(rimLight);
 
+    const groundShadow = new Mesh(
+      new PlaneGeometry(3.2, 1.25),
+      new ShadowMaterial({ color: 0x000000, opacity: 0.2, transparent: true }),
+    );
+    groundShadow.rotation.x = -Math.PI / 2;
+    groundShadow.position.set(0, -2.05, 0.05);
+    groundShadow.receiveShadow = true;
+    scene.add(groundShadow);
+
     scene.add(fallback);
+    setShadowCasting(fallback, true, false);
     fitObjectToView(fallback, camera, modelScale);
     activeBaseY = fallback.position.y;
 
@@ -622,29 +953,72 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
       const delta = clock.getDelta();
       const elapsed = clock.elapsedTime;
       const currentMood = moodRef.current;
-      const moodBoost = currentMood === "speaking" || currentMood === "wiggle" ? 1.8 : 1;
+      if (activeMesh && currentMood !== activeMotionMood) {
+        previousMotionMood = activeMotionMood;
+        activeMotionMood = currentMood;
+        const clip = builtInMotionClips.get(currentMood);
+        if (clip) {
+          playMotionClip(helper, activeMesh, clip, false);
+        } else if (currentMood === "idle") {
+          stopMotionClip(helper, activeMesh);
+        }
+      }
+      if (currentMood !== currentPoseMood) {
+        currentPoseMood = currentMood;
+        poseStartedAt = elapsed;
+      }
+      const poseElapsed = elapsed - poseStartedAt;
+      const poseWeight = smoothStep(poseElapsed / 0.72);
+      const moodBoost = currentMood === "speaking" || currentMood === "happy" || currentMood === "wiggle" ? 1.8 : 1;
       const motion = Math.max(0, intensity) * moodBoost;
       let rotationX = 0;
-      let rotationY = Math.sin(elapsed * 0.8) * 0.16 * motion;
+      let rotationY = 0;
       let rotationZ = 0;
       let positionX = 0;
-      let positionY = activeBaseY + Math.sin(elapsed * 2.2) * 0.035 * motion;
+      let positionY = activeBaseY;
 
       resetProceduralRig(proceduralRig);
       if (helper.meshes.length > 0) helper.update(delta);
+      if (elapsed >= nextBlinkAt) {
+        blinkStartedAt = elapsed;
+        nextBlinkAt = elapsed + 2.2 + Math.random() * 3.6;
+      }
+      stabilizeFacing(proceduralRig);
+      neutralizeEyePose(proceduralRig);
+      if (currentMood === "idle" && elapsed >= nextIdleLookAt) {
+        idleLookTarget.x = (Math.random() - 0.5) * 0.08;
+        idleLookTarget.y = Math.random() * 0.06;
+        nextIdleLookAt = elapsed + 1.8 + Math.random() * 2.4;
+      } else if (currentMood !== "idle") {
+        idleLookTarget.x = 0;
+        idleLookTarget.y = 0;
+      }
+      idleLook.x += (idleLookTarget.x - idleLook.x) * Math.min(1, delta * 1.6);
+      idleLook.y += (idleLookTarget.y - idleLook.y) * Math.min(1, delta * 1.6);
+      const targetGaze = currentMood === "idle" && !gazeFollowMouse ? idleLook : gazeRef.current;
+      currentGaze.x += (targetGaze.x - currentGaze.x) * Math.min(1, delta * 7);
+      currentGaze.y += (targetGaze.y - currentGaze.y) * Math.min(1, delta * 7);
 
       if (currentMood === "walk") {
-        positionX = Math.sin(elapsed * 8) * 0.18 * Math.max(0.3, intensity);
-        positionY = activeBaseY + Math.abs(Math.sin(elapsed * 8)) * 0.08 * Math.max(0.3, intensity);
-        rotationY = Math.sin(elapsed * 8) * 0.22 * Math.max(0.3, intensity);
-        rotationZ = Math.sin(elapsed * 8) * 0.08 * Math.max(0.3, intensity);
-      } else if (currentMood === "greet") {
-        rotationY = Math.sin(elapsed * 9) * 0.34 * Math.max(0.3, intensity);
-        rotationZ = Math.sin(elapsed * 9) * 0.11 * Math.max(0.3, intensity);
-        positionY = activeBaseY + Math.sin(elapsed * 7) * 0.045 * Math.max(0.3, intensity);
+        positionX = Math.sin(poseElapsed * 8) * 0.12 * Math.max(0.3, intensity) * poseWeight;
+        positionY = activeBaseY + Math.abs(Math.sin(poseElapsed * 8)) * 0.055 * Math.max(0.3, intensity) * poseWeight;
+        rotationY = Math.sin(poseElapsed * 8) * 0.16 * Math.max(0.3, intensity) * poseWeight;
+        rotationZ = Math.sin(poseElapsed * 8) * 0.055 * Math.max(0.3, intensity) * poseWeight;
+      } else if (currentMood === "greet" || currentMood === "kiss") {
+        rotationY = Math.sin(poseElapsed * 9) * 0.24 * Math.max(0.3, intensity) * poseWeight;
+        rotationZ = Math.sin(poseElapsed * 9) * 0.075 * Math.max(0.3, intensity) * poseWeight;
+        positionY = activeBaseY + Math.sin(poseElapsed * 7) * 0.035 * Math.max(0.3, intensity) * poseWeight;
       } else if (currentMood === "nod") {
-        rotationX = Math.sin(elapsed * 10) * 0.18 * Math.max(0.3, intensity);
-        positionY = activeBaseY + Math.sin(elapsed * 10) * 0.045 * Math.max(0.3, intensity);
+        rotationX = Math.sin(poseElapsed * 10) * 0.13 * Math.max(0.3, intensity) * poseWeight;
+        positionY = activeBaseY + Math.sin(poseElapsed * 10) * 0.03 * Math.max(0.3, intensity) * poseWeight;
+      } else if (currentMood === "chinRest") {
+        rotationY = (-0.06 + Math.sin(poseElapsed * 1.8) * 0.018 * Math.max(0.3, intensity)) * poseWeight;
+        rotationZ = -0.025 * poseWeight;
+        positionY = activeBaseY + (-0.02 + Math.sin(poseElapsed * 2.2) * 0.009 * Math.max(0.3, intensity)) * poseWeight;
+      } else if (currentMood === "work") {
+        rotationX = (-0.025 + Math.sin(poseElapsed * 4.2) * 0.012 * Math.max(0.3, intensity)) * poseWeight;
+        rotationY = Math.sin(poseElapsed * 2.7) * 0.055 * Math.max(0.3, intensity) * poseWeight;
+        positionY = activeBaseY + Math.sin(poseElapsed * 10) * 0.007 * Math.max(0.3, intensity) * poseWeight;
       }
 
       activeObject.position.x = positionX;
@@ -652,8 +1026,12 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
       activeObject.rotation.x = rotationX;
       activeObject.rotation.y = rotationY;
       activeObject.rotation.z = rotationZ;
-      applyProceduralRig(proceduralRig, currentMood, elapsed, intensity);
+      applyProceduralRig(proceduralRig, currentMood, elapsed, poseElapsed, intensity, currentGaze);
+      applyBlinkMorph(blinkMorphTargets, elapsed, blinkStartedAt);
       keepObjectInView(activeObject, camera);
+      groundShadow.position.x = activeObject.position.x;
+      groundShadow.position.y = activeBaseY - 0.02;
+      groundShadow.scale.setScalar(1 + Math.abs(positionY - activeBaseY) * 0.35);
       renderer.render(scene, camera);
       animationFrame = window.requestAnimationFrame(render);
     };
@@ -690,14 +1068,33 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
                   appliedTextures += 1;
                   if (!disposed) setStatus(`m${materialStats.materialCount} u${materialStats.directTextureUrls} a${appliedTextures}`);
                 });
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
+                setShadowCasting(mesh, true, true);
                 scene.add(mesh);
                 activeObject = mesh;
+                activeMesh = mesh;
                 activeBaseY = mesh.position.y;
                 proceduralRig = createProceduralRig(mesh);
+                restPose = captureRestPose(mesh);
+                morphRestPose = captureMorphRestPose(mesh);
+                blinkMorphTargets = findBlinkMorphTargets(mesh);
                 const proceduralBoneCount = getProceduralBoneCount(proceduralRig);
                 setStatus(`模型已显示，贴图 ${appliedTextures}/${materialStats.materialCount}`);
+
+                helper.add(mesh, { physics: false });
+
+                Object.entries(builtInMotionUrls).forEach(([motionMood, motionUrl]) => {
+                  loader.loadAnimation(
+                    motionUrl,
+                    mesh,
+                    (animation) => {
+                      if (disposed) return;
+                      builtInMotionClips.set(motionMood as PetMood, animation as AnimationClip);
+                      setStatus(`内置动作 ${builtInMotionClips.size}/${Object.keys(builtInMotionUrls).length}，关节补动 ${proceduralBoneCount}`);
+                    },
+                    undefined,
+                    () => undefined,
+                  );
+                });
 
                 if (preparedSource.motionUrl) {
                   setStatus(`正在解析动作：${motionLabel}`);
@@ -706,7 +1103,7 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
                     mesh,
                     (animation) => {
                       if (disposed) return;
-                      helper.add(mesh, { animation, physics: false });
+                      defaultMotionClip = animation as AnimationClip;
                       setStatus(`动作已加载：${motionLabel}，关节补动 ${proceduralBoneCount}`);
                     },
                     (event) => {
@@ -752,11 +1149,7 @@ export function MmdPet({ modelDataUrl, modelPath, motionDataUrl, motionPath, mot
       });
       source?.dispose();
     };
-  }, [modelDataUrl, modelPath, motionDataUrl, motionPath, motionName, modelName, modelScale, intensity]);
+  }, [modelDataUrl, modelPath, motionDataUrl, motionPath, motionName, modelName, modelScale, intensity, gazeFollowMouse]);
 
-  return (
-    <div className="mmd-stage" ref={mountRef} aria-label={status}>
-      <span>{status}</span>
-    </div>
-  );
+  return <div className="mmd-stage" ref={mountRef} aria-label={status} />;
 }

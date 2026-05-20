@@ -53,14 +53,15 @@ button:disabled {
 .pet-actions {
   position: absolute;
   z-index: 20;
-  top: 58%;
+  top: auto;
+  bottom: 4px;
   left: 50%;
   right: auto;
   display: flex;
-  gap: 4px;
+  gap: 6px;
   opacity: 0;
   pointer-events: none;
-  transform: translateX(-50%) translateY(-3px);
+  transform: translateX(-50%) translateY(6px);
   transition:
     opacity 160ms ease,
     transform 160ms ease;
@@ -70,48 +71,6 @@ button:disabled {
   opacity: 1;
   pointer-events: auto;
   transform: translateX(-50%) translateY(0);
-}
-
-.pet-status {
-  position: absolute;
-  z-index: 19;
-  left: 10px;
-  bottom: 10px;
-  max-width: calc(100vw - 20px);
-  border: 1px solid rgba(19, 33, 25, 0.12);
-  border-radius: 8px;
-  padding: 7px 9px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #18251e;
-  background: rgba(255, 255, 255, 0.78);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
-  backdrop-filter: blur(12px);
-  font-size: 11px;
-  line-height: 1;
-  opacity: 0;
-  transform: translateY(4px);
-  transition:
-    opacity 160ms ease,
-    transform 160ms ease;
-}
-
-.pet-shell:hover .pet-status {
-  opacity: 1;
-  transform: translateY(0);
-}
-
-.pet-status strong,
-.pet-status span {
-  min-width: 0;
-  white-space: nowrap;
-}
-
-.pet-status strong {
-  max-width: 92px;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .icon-button {
@@ -149,21 +108,21 @@ button:disabled {
   z-index: 15;
   left: 50%;
   right: auto;
-  width: min(56vw, 220px);
-  top: 72%;
+  width: min(64vw, 160px);
+  top: 10%;
   bottom: auto;
-  transform: translateX(-50%);
-  max-height: 86px;
+  transform: translate(-50%, -50%);
+  max-height: 46px;
   overflow: hidden;
-  padding: 10px 12px;
+  padding: 6px 9px;
   border: 1px solid rgba(29, 43, 35, 0.14);
-  border-radius: 14px;
+  border-radius: 10px;
   color: #16231b;
   background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 12px 30px rgba(31, 35, 32, 0.18);
   backdrop-filter: blur(14px);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 11px;
+  line-height: 1.3;
 }
 
 .speech-bubble.thinking::after {
@@ -182,20 +141,20 @@ button:disabled {
 .pet-stage {
   position: absolute;
   left: 50%;
-  top: 4px;
-  bottom: 6px;
-  width: min(96vw, calc(100vh - 10px));
-  max-width: calc(100vw - 8px);
+  top: 0;
+  bottom: 22px;
+  width: min(100vw, calc(100vh - 12px));
+  max-width: 100vw;
   min-height: 96px;
   transform: translateX(-50%);
   border: 0;
-  padding: 8px;
+  padding: 2px;
   background: transparent;
   display: grid;
   place-items: center;
   cursor: grab;
   transform-origin: 50% 82%;
-  animation: idle-drift calc(4.8s / max(var(--intensity), 0.1)) ease-in-out infinite;
+  animation: none;
 }
 
 .pet-stage:active,
@@ -214,10 +173,13 @@ button:disabled {
 }
 
 .pet-stage::before {
-  inset: 22% 20% 8%;
-  background: radial-gradient(circle at 50% 82%, rgba(67, 133, 101, 0.24), transparent 63%);
-  transform: translateY(14%);
-  filter: blur(4px);
+  left: 18%;
+  right: 18%;
+  bottom: 3%;
+  height: 22%;
+  background: radial-gradient(ellipse at center, rgba(22, 28, 24, 0.28), rgba(67, 133, 101, 0.15) 42%, transparent 72%);
+  transform: translateY(8%) scaleX(0.88);
+  filter: blur(6px);
   animation: ground-pulse calc(2.8s / max(var(--intensity), 0.1)) ease-in-out infinite;
 }
 
@@ -269,31 +231,43 @@ button:disabled {
   animation: gentle-nod 1.05s ease-in-out;
 }
 
-.pet-stage.expression-happy:not(.walk):not(.greet):not(.nod) .pet-image {
+.pet-stage.chinRest {
+  animation: chin-rest-sway 4.2s ease-in-out;
+}
+
+.pet-stage.work {
+  animation: focused-work 5.2s ease-in-out;
+}
+
+.pet-stage.sleep {
+  animation: sleepy-slump 5.6s ease-in-out;
+}
+
+.pet-stage.expression-happy:not(.walk):not(.greet):not(.nod):not(.chinRest):not(.work):not(.sleep) .pet-image {
   animation: expression-happy 1.2s ease-in-out infinite;
 }
 
-.pet-stage.expression-curious:not(.walk):not(.greet):not(.nod) .pet-image {
+.pet-stage.expression-curious:not(.walk):not(.greet):not(.nod):not(.chinRest):not(.work):not(.sleep) .pet-image {
   animation: expression-curious 1.5s ease-in-out infinite;
 }
 
-.pet-stage.expression-sleepy:not(.walk):not(.greet):not(.nod) .pet-image {
+.pet-stage.expression-sleepy:not(.walk):not(.greet):not(.nod):not(.chinRest):not(.work):not(.sleep) .pet-image {
   animation: expression-sleepy 1.8s ease-in-out infinite;
 }
 
-.pet-stage.expression-surprised:not(.walk):not(.greet):not(.nod) .pet-image {
+.pet-stage.expression-surprised:not(.walk):not(.greet):not(.nod):not(.chinRest):not(.work):not(.sleep) .pet-image {
   animation: expression-surprised 780ms cubic-bezier(0.2, 0.9, 0.25, 1.1) infinite;
 }
 
-.pet-stage.expression-shy:not(.walk):not(.greet):not(.nod) .pet-image {
+.pet-stage.expression-shy:not(.walk):not(.greet):not(.nod):not(.chinRest):not(.work):not(.sleep) .pet-image {
   animation: expression-shy 1.45s ease-in-out infinite;
 }
 
-.pet-stage.expression-bored:not(.walk):not(.greet):not(.nod) .pet-image {
+.pet-stage.expression-bored:not(.walk):not(.greet):not(.nod):not(.chinRest):not(.work):not(.sleep) .pet-image {
   animation: expression-bored 1.8s ease-in-out infinite;
 }
 
-.pet-stage.expression-petting:not(.walk):not(.greet):not(.nod) .pet-image {
+.pet-stage.expression-petting:not(.walk):not(.greet):not(.nod):not(.chinRest):not(.work):not(.sleep) .pet-image {
   animation: expression-petting 1.25s ease-in-out infinite;
 }
 
@@ -304,11 +278,45 @@ button:disabled {
   max-height: 100%;
   object-fit: contain;
   pointer-events: none;
-  filter: drop-shadow(0 18px 16px rgba(0, 0, 0, 0.18));
+  filter:
+    drop-shadow(0 22px 18px rgba(0, 0, 0, 0.22))
+    drop-shadow(0 6px 5px rgba(0, 0, 0, 0.1));
   transform-origin: 50% 84%;
   animation:
     image-appear 220ms ease-out,
     living-pose calc(3.2s / max(var(--intensity), 0.1)) ease-in-out infinite;
+}
+
+.image-gaze-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  pointer-events: none;
+}
+
+.image-eye {
+  position: absolute;
+  width: clamp(11px, 5.7%, 26px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 62% 28%, rgba(255, 255, 255, 0.92) 0 13%, transparent 14%),
+    radial-gradient(circle at 50% 50%, #244f9e 0 62%, #173c7d 63% 100%);
+  box-shadow:
+    inset 0 -2px 5px rgba(0, 0, 0, 0.18),
+    0 1px 2px rgba(10, 24, 55, 0.14);
+  transform: translate(calc(var(--gaze-x) * 5px), calc(var(--gaze-y) * -4px));
+  transition: transform 90ms ease-out;
+}
+
+.image-eye.left {
+  left: 38.5%;
+  top: 59%;
+}
+
+.image-eye.right {
+  left: 54%;
+  top: 61.5%;
 }
 
 .mmd-stage {
@@ -317,36 +325,14 @@ button:disabled {
   display: grid;
   place-items: center;
   pointer-events: none;
-  filter: drop-shadow(0 18px 16px rgba(0, 0, 0, 0.18));
+  filter:
+    drop-shadow(0 22px 18px rgba(0, 0, 0, 0.2))
+    drop-shadow(0 6px 5px rgba(0, 0, 0, 0.1));
 }
 
 .mmd-stage canvas {
   width: 100%;
   height: 100%;
-}
-
-.mmd-stage span {
-  position: absolute;
-  left: 50%;
-  bottom: 8px;
-  max-width: 80%;
-  transform: translateX(-50%);
-  border: 1px solid rgba(19, 33, 25, 0.12);
-  border-radius: 8px;
-  padding: 5px 8px;
-  overflow: hidden;
-  color: #26352d;
-  background: rgba(255, 255, 255, 0.78);
-  font-size: 11px;
-  line-height: 1;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  opacity: 0;
-  transition: opacity 160ms ease;
-}
-
-.pet-shell:hover .mmd-stage span {
-  opacity: 1;
 }
 
 .pet-stage.stretch .pet-image {
@@ -372,6 +358,20 @@ button:disabled {
 
 .pet-stage.nod .pet-image {
   animation: nod-bob 1.05s ease-in-out;
+}
+
+.pet-stage.chinRest .pet-image {
+  animation: image-chin-rest 4.2s ease-in-out;
+  transform-origin: 54% 84%;
+}
+
+.pet-stage.work .pet-image {
+  animation: image-focused-work 5.2s ease-in-out;
+}
+
+.pet-stage.sleep .pet-image {
+  animation: image-sleepy-slump 5.6s ease-in-out;
+  transform-origin: 52% 86%;
 }
 
 .expression-layer {
@@ -1183,6 +1183,178 @@ button:disabled {
   }
   52% {
     transform: scaleX(0.96) scaleY(1.06);
+  }
+}
+
+@keyframes tiny-walk {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0) rotate(0deg);
+  }
+  25% {
+    transform: translateX(calc(-50% - 8px * var(--intensity))) translateY(calc(-5px * var(--intensity))) rotate(calc(-3deg * var(--intensity)));
+  }
+  50% {
+    transform: translateX(-50%) translateY(0) rotate(0deg);
+  }
+  75% {
+    transform: translateX(calc(-50% + 8px * var(--intensity))) translateY(calc(-5px * var(--intensity))) rotate(calc(3deg * var(--intensity)));
+  }
+}
+
+@keyframes friendly-greet {
+  0%,
+  100% {
+    transform: translateX(-50%) rotate(0deg);
+  }
+  28% {
+    transform: translateX(-50%) rotate(calc(-5deg * var(--intensity)));
+  }
+  54% {
+    transform: translateX(-50%) rotate(calc(6deg * var(--intensity)));
+  }
+  78% {
+    transform: translateX(-50%) rotate(calc(-3deg * var(--intensity)));
+  }
+}
+
+@keyframes gentle-nod {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0) rotate(0deg);
+  }
+  42% {
+    transform: translateX(-50%) translateY(calc(5px * var(--intensity))) rotate(calc(2deg * var(--intensity)));
+  }
+  72% {
+    transform: translateX(-50%) translateY(calc(-3px * var(--intensity))) rotate(calc(-1deg * var(--intensity)));
+  }
+}
+
+@keyframes chin-rest-sway {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0) rotate(0deg);
+  }
+  36% {
+    transform: translateX(calc(-50% - 5px * var(--intensity))) translateY(calc(4px * var(--intensity))) rotate(calc(-4deg * var(--intensity)));
+  }
+  70% {
+    transform: translateX(calc(-50% - 2px * var(--intensity))) translateY(calc(2px * var(--intensity))) rotate(calc(-2deg * var(--intensity)));
+  }
+}
+
+@keyframes focused-work {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0) rotate(0deg);
+  }
+  18%,
+  54%,
+  82% {
+    transform: translateX(-50%) translateY(calc(2px * var(--intensity))) rotate(calc(-1deg * var(--intensity)));
+  }
+  34%,
+  68% {
+    transform: translateX(-50%) translateY(calc(-2px * var(--intensity))) rotate(calc(1deg * var(--intensity)));
+  }
+}
+
+@keyframes sleepy-slump {
+  0%,
+  100% {
+    transform: translateX(-50%) translateY(0) rotate(0deg);
+  }
+  28% {
+    transform: translateX(-50%) translateY(calc(8px * var(--intensity))) rotate(calc(5deg * var(--intensity)));
+  }
+  64% {
+    transform: translateX(-50%) translateY(calc(5px * var(--intensity))) rotate(calc(3deg * var(--intensity)));
+  }
+}
+
+@keyframes walk-steps {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  25%,
+  75% {
+    transform: translateY(calc(-5px * var(--intensity))) scaleX(0.985) scaleY(1.025);
+  }
+  50% {
+    transform: translateY(0) scaleX(1.025) scaleY(0.985);
+  }
+}
+
+@keyframes greet-wave {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+  28% {
+    transform: rotate(calc(-4deg * var(--intensity))) scale(1.02);
+  }
+  55% {
+    transform: rotate(calc(5deg * var(--intensity))) scale(1.02);
+  }
+  78% {
+    transform: rotate(calc(-2deg * var(--intensity))) scale(1.01);
+  }
+}
+
+@keyframes nod-bob {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  42% {
+    transform: translateY(calc(7px * var(--intensity))) scaleX(1.02) scaleY(0.98);
+  }
+  72% {
+    transform: translateY(calc(-3px * var(--intensity))) scaleX(0.99) scaleY(1.02);
+  }
+}
+
+@keyframes image-chin-rest {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  35% {
+    transform: translateY(calc(7px * var(--intensity))) rotate(calc(-5deg * var(--intensity)));
+  }
+  70% {
+    transform: translateY(calc(4px * var(--intensity))) rotate(calc(-3deg * var(--intensity)));
+  }
+}
+
+@keyframes image-focused-work {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  18%,
+  52%,
+  84% {
+    transform: translateY(calc(3px * var(--intensity))) scaleX(1.01) scaleY(0.99);
+  }
+  34%,
+  68% {
+    transform: translateY(calc(-2px * var(--intensity))) scaleX(0.995) scaleY(1.01);
+  }
+}
+
+@keyframes image-sleepy-slump {
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+  30% {
+    transform: translateY(calc(11px * var(--intensity))) rotate(calc(7deg * var(--intensity))) scaleX(1.03) scaleY(0.97);
+  }
+  68% {
+    transform: translateY(calc(7px * var(--intensity))) rotate(calc(4deg * var(--intensity))) scaleX(1.01) scaleY(0.99);
   }
 }
 

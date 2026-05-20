@@ -16,7 +16,7 @@
         "title": "Desk Buddy",
         "url": "index.html?view=pet",
         "width": 280,
-        "height": 320,
+        "height": 340,
         "decorations": false,
         "transparent": true,
         "alwaysOnTop": true,

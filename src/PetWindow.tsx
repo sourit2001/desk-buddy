@@ -1,8 +1,8 @@
-import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, MouseEvent, WheelEvent, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { currentMonitor, getCurrentWindow, LogicalPosition, LogicalSize } from "@tauri-apps/api/window";
 import { Footprints, Hand, Heart, MessageCircle, Moon, Power, Send, Settings, Smile, Sparkles, Utensils, X } from "lucide-react";
-import { loadConfig, loadConfigAsync, subscribeConfig } from "./config";
+import { loadConfig, loadConfigAsync, saveConfig, subscribeConfig } from "./config";
 import { isTauriRuntime } from "./tauriRuntime";
 import { MmdPet } from "./MmdPet";
 import { AppConfig, getActivePet, PetExpression, PetMood, RoamMode } from "./types";
@@ -35,6 +35,11 @@ type RoamTarget = {
   y: number;
 };
 
+type CursorPosition = {
+  x: number;
+  y: number;
+};
+
 type RoamEdge = "top" | "right" | "bottom" | "left";
 
 const defaultPetState: PetRuntimeState = {
@@ -44,12 +49,14 @@ const defaultPetState: PetRuntimeState = {
 };
 
 const moodDurations: Partial<Record<PetMood, number>> = {
-  stretch: 1300,
+  happy: 2600,
+  stretch: 3200,
   wiggle: 900,
   hop: 900,
-  walk: 1600,
-  greet: 1250,
-  nod: 1050,
+  walk: 2400,
+  greet: 1800,
+  nod: 1500,
+  kiss: 2200,
 };
 
 const proactiveLineDelays = {
@@ -265,6 +272,13 @@ function getRoamPath(mode: RoamMode, bounds: RoamBounds, start: RoamTarget): Roa
   return path.filter((point, index) => index === 0 || distanceBetween(path[index - 1], point) > 1);
 }
 
+function clampToBounds(point: RoamTarget, bounds: RoamBounds): RoamTarget {
+  return {
+    x: clamp(point.x, bounds.left, bounds.right),
+    y: clamp(point.y, bounds.top, bounds.bottom),
+  };
+}
+
 function getPositionOnPath(start: RoamTarget, waypoints: RoamTarget[], progress: number): RoamTarget {
   const points = [start, ...waypoints];
   const lengths = points.slice(1).map((point, index) => distanceBetween(points[index], point));
@@ -305,11 +319,15 @@ export function PetWindow() {
   const [imageIndex, setImageIndex] = useState(0);
   const [petState, setPetState] = useState<PetRuntimeState>(defaultPetState);
   const [petMenu, setPetMenu] = useState<PetMenu | null>(null);
+  const [gaze, setGaze] = useState({ x: 0, y: 0 });
   const interactionTimeoutRef = useRef<number>();
+  const idleActionStartTimeoutRef = useRef<number>();
   const expressionTimeoutRef = useRef<number>();
   const expressionIndexRef = useRef(0);
   const roamingRef = useRef(false);
   const proactiveLineCountRef = useRef(0);
+  const idleMotionIndexRef = useRef(0);
+  const sizeSaveTimeoutRef = useRef<number>();
   const moodRef = useRef<PetMood>("idle");
   const composerOpenRef = useRef(false);
   const activePet = getActivePet(config);
@@ -335,6 +353,67 @@ export function PetWindow() {
   useEffect(() => {
     composerOpenRef.current = composerOpen;
   }, [composerOpen]);
+
+  useEffect(() => {
+    if (!isMmdMode || !isTauriRuntime() || !config.animation.enabled || !config.animation.gazeFollowMouse) {
+      setGaze({ x: 0, y: 0 });
+      return;
+    }
+
+    let stopped = false;
+    let busy = false;
+    const appWindow = getCurrentWindow();
+
+    const updateGlobalGaze = async () => {
+      if (stopped || busy) return;
+      busy = true;
+
+      try {
+        const [cursor, monitor, position, size] = await Promise.all([
+          invoke<CursorPosition | null>("cursor_position"),
+          currentMonitor(),
+          appWindow.outerPosition(),
+          appWindow.outerSize(),
+        ]);
+        if (!cursor) return;
+
+        const scaleFactor = monitor?.scaleFactor || window.devicePixelRatio || 1;
+        const windowLeft = position.x / scaleFactor;
+        const windowTop = position.y / scaleFactor;
+        const windowWidth = Math.max(1, size.width / scaleFactor);
+        const windowHeight = Math.max(1, size.height / scaleFactor);
+        const centerX = windowLeft + windowWidth / 2;
+        const centerY = windowTop + windowHeight * 0.46;
+        const reachX = Math.max(120, windowWidth * 1.7);
+        const reachY = Math.max(120, windowHeight * 1.55);
+
+        setGaze({
+          x: clamp((cursor.x - centerX) / reachX, -1, 1),
+          y: clamp((centerY - cursor.y) / reachY, -1, 1),
+        });
+      } catch {
+        // Browser preview and unsupported platforms fall back to local pointer movement.
+      } finally {
+        busy = false;
+      }
+    };
+
+    updateGlobalGaze().catch(() => undefined);
+    const interval = window.setInterval(() => {
+      updateGlobalGaze().catch(() => undefined);
+    }, 50);
+
+    return () => {
+      stopped = true;
+      window.clearInterval(interval);
+    };
+  }, [config.animation.enabled, config.animation.gazeFollowMouse, isMmdMode]);
+
+  useEffect(() => {
+    return () => {
+      if (sizeSaveTimeoutRef.current) window.clearTimeout(sizeSaveTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isTauriRuntime()) return;
@@ -403,21 +482,31 @@ export function PetWindow() {
   useEffect(() => {
     if (!config.animation.enabled || mood !== "idle") return;
 
-    const idleMoves: PetMood[] = ["stretch", "wiggle", "hop", "nod"];
+    const idleMoves: PetMood[] = ["stretch", "happy", "kiss", "greet", "nod"];
     const timeout = window.setTimeout(
       () => {
-        const nextMood = idleMoves[Math.floor(Math.random() * idleMoves.length)];
+        if (composerOpenRef.current || roamingRef.current) return;
+        const nextMood = idleMoves[idleMotionIndexRef.current % idleMoves.length];
+        idleMotionIndexRef.current += 1;
         setMood(nextMood);
+        if (interactionTimeoutRef.current) window.clearTimeout(interactionTimeoutRef.current);
         interactionTimeoutRef.current = window.setTimeout(() => setMood("idle"), moodDurations[nextMood] ?? 900);
       },
-      4200 + Math.random() * 4200,
+      3600 + Math.random() * 2400,
     );
+    idleActionStartTimeoutRef.current = timeout;
 
     return () => {
       window.clearTimeout(timeout);
-      if (interactionTimeoutRef.current) window.clearTimeout(interactionTimeoutRef.current);
     };
   }, [config.animation.enabled, mood]);
+
+  useEffect(() => {
+    return () => {
+      if (idleActionStartTimeoutRef.current) window.clearTimeout(idleActionStartTimeoutRef.current);
+      if (interactionTimeoutRef.current) window.clearTimeout(interactionTimeoutRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!config.animation.enabled || !config.animation.expressionEffects || mood !== "idle") {
@@ -584,7 +673,7 @@ export function PetWindow() {
 
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault();
-    setPetMenu({ x: Math.min(event.clientX, window.innerWidth - 142), y: Math.min(event.clientY, window.innerHeight - 188) });
+    setPetMenu({ x: Math.min(event.clientX, window.innerWidth - 142), y: Math.min(event.clientY, window.innerHeight - 258) });
   }
 
   function toggleInteractionMenu(event: MouseEvent<HTMLButtonElement>) {
@@ -599,18 +688,19 @@ export function PetWindow() {
     );
   }
 
-  function runInteraction(kind: "pet" | "feed" | "nap" | "play" | "chat" | "walk" | "greet" | "nod") {
+  function runInteraction(kind: "pet" | "feed" | "nap" | "play" | "chat" | "walk" | "greet" | "nod" | "kiss") {
     if (kind === "chat") {
       setPetMenu(null);
       setComposerOpen(true);
       return;
     }
 
-    if (kind === "walk" || kind === "greet" || kind === "nod") {
+    if (kind === "walk" || kind === "greet" || kind === "nod" || kind === "kiss") {
       const action = {
         walk: { text: "我走两步给你看。", expression: "curious" as PetExpression, mood: "walk" as PetMood, energy: -2 },
         greet: { text: "嗨，我在这里。", expression: "happy" as PetExpression, mood: "greet" as PetMood, energy: -1 },
         nod: { text: "嗯嗯。", expression: "happy" as PetExpression, mood: "nod" as PetMood, energy: 0 },
+        kiss: { text: "给你一个飞吻。", expression: "shy" as PetExpression, mood: "kiss" as PetMood, energy: -1 },
       }[kind];
 
       commitPetState((state) => ({
@@ -626,7 +716,7 @@ export function PetWindow() {
         pet: { affection: 4, energy: 0, expression: "petting" as PetExpression, mood: "clicked" as PetMood },
       feed: { affection: 2, energy: 12, expression: "happy" as PetExpression, mood: "speaking" as PetMood },
       nap: { affection: 0, energy: 24, expression: "sleepy" as PetExpression, mood: "stretch" as PetMood },
-      play: { affection: 5, energy: -10, expression: "surprised" as PetExpression, mood: "hop" as PetMood },
+      play: { affection: 5, energy: -10, expression: "surprised" as PetExpression, mood: "happy" as PetMood },
     }[kind];
 
     commitPetState((state) => ({
@@ -721,17 +811,19 @@ export function PetWindow() {
     const monitorHeight = monitor.size.height / scaleFactor;
     const windowWidth = currentSize.width / scaleFactor;
     const windowHeight = currentSize.height / scaleFactor;
-    const margin = shouldUseScreenEdgeBounds(config.window.roamMode) ? 0 : 28;
+    const margin = shouldUseScreenEdgeBounds(config.window.roamMode) ? 8 : 28;
     const bounds: RoamBounds = {
       left: monitorLeft + margin,
       top: monitorTop + margin,
       right: Math.max(monitorLeft + margin, monitorLeft + monitorWidth - windowWidth - margin),
       bottom: Math.max(monitorTop + margin, monitorTop + monitorHeight - windowHeight - margin),
     };
-    const startX = currentPosition.x / scaleFactor;
-    const startY = currentPosition.y / scaleFactor;
-    const start = { x: startX, y: startY };
-    const waypoints = getRoamPath(config.window.roamMode, bounds, start);
+    const start = clampToBounds({ x: currentPosition.x / scaleFactor, y: currentPosition.y / scaleFactor }, bounds);
+    if (Math.abs(start.x - currentPosition.x / scaleFactor) > 1 || Math.abs(start.y - currentPosition.y / scaleFactor) > 1) {
+      await appWindow.setPosition(new LogicalPosition(start.x, start.y));
+    }
+
+    const waypoints = getRoamPath(config.window.roamMode, bounds, start).map((point) => clampToBounds(point, bounds));
     if (!waypoints.length) return;
 
     const duration = Math.max(1.2, config.window.roamDurationSeconds) * 1000;
@@ -747,7 +839,7 @@ export function PetWindow() {
 
       const progress = Math.min(1, (now - startAt) / duration);
       const eased = easeInOut(progress);
-      const nextPosition = getPositionOnPath(start, waypoints, eased);
+      const nextPosition = clampToBounds(getPositionOnPath(start, waypoints, eased), bounds);
       await appWindow.setPosition(new LogicalPosition(nextPosition.x, nextPosition.y));
 
       if (progress < 1) {
@@ -825,6 +917,68 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
     );
   }
 
+  function updatePetGaze(event: MouseEvent<HTMLElement>) {
+    if (!config.animation.gazeFollowMouse) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    setGaze({
+      x: clamp(((event.clientX - rect.left) / rect.width - 0.5) * 2, -1, 1),
+      y: clamp(((event.clientY - rect.top) / rect.height - 0.5) * -2, -1, 1),
+    });
+  }
+
+  function resetPetGaze() {
+    if (!config.animation.gazeFollowMouse) return;
+    setGaze({ x: 0, y: 0 });
+  }
+
+  function renderImageGazeLayer() {
+    if (isMmdMode || !currentPetImage || !config.animation.enabled || !config.animation.gazeFollowMouse) return null;
+
+    return (
+      <div
+        className="image-gaze-layer"
+        style={
+          {
+            "--gaze-x": gaze.x,
+            "--gaze-y": gaze.y,
+          } as React.CSSProperties
+        }
+        aria-hidden="true"
+      >
+        <span className="image-eye left" />
+        <span className="image-eye right" />
+      </div>
+    );
+  }
+
+  function resizePetWindowByWheel(event: WheelEvent<HTMLElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const direction = event.deltaY < 0 ? 1 : -1;
+    const scale = direction > 0 ? 1.06 : 0.94;
+    const nextWidth = Math.round(clamp(config.window.width * scale, 220, 520));
+    const nextHeight = Math.round(clamp(config.window.height * scale, 260, 640));
+    if (nextWidth === config.window.width && nextHeight === config.window.height) return;
+
+    const nextConfig = {
+      ...config,
+      window: {
+        ...config.window,
+        width: nextWidth,
+        height: nextHeight,
+      },
+    };
+
+    setConfig(nextConfig);
+    if (sizeSaveTimeoutRef.current) window.clearTimeout(sizeSaveTimeoutRef.current);
+    sizeSaveTimeoutRef.current = window.setTimeout(() => {
+      saveConfig(nextConfig).catch(() => undefined);
+    }, 180);
+  }
+
   return (
     <main
       className="pet-shell"
@@ -834,12 +988,6 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
       onDoubleClick={openSettings}
     >
       <div className="pet-drag-region" data-tauri-drag-region />
-
-      <div className="pet-status" aria-label="桌宠状态" data-tauri-drag-region>
-        <strong>{activePet.name}</strong>
-        <span>亲密 {Math.round(petState.affection)}</span>
-        <span>精力 {Math.round(petState.energy)}</span>
-      </div>
 
       {bubble && (
         <div className={`speech-bubble ${mood}`} data-tauri-drag-region>
@@ -867,8 +1015,11 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
         role="button"
         tabIndex={0}
         onMouseDown={startWindowDrag}
+        onMouseMove={updatePetGaze}
+        onMouseLeave={resetPetGaze}
+        onWheel={resizePetWindowByWheel}
         onClick={handlePetClick}
-        title="左键摸摸，右键互动，按住拖动位置，双击设置"
+        title="左键摸摸，滚轮调大小，右键互动，按住拖动位置，双击设置"
       >
         {isMmdMode ? (
           <>
@@ -882,6 +1033,8 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
               modelScale={activePet.mmdScale}
               mood={mood}
               intensity={config.animation.enabled ? config.animation.intensity : 0}
+              gaze={gaze}
+              gazeFollowMouse={config.animation.gazeFollowMouse}
             />
             {renderExpressionLayer()}
           </>
@@ -894,6 +1047,7 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
               alt={activePet.name}
               draggable={false}
             />
+            {renderImageGazeLayer()}
             {renderExpressionLayer()}
           </>
         ) : (
@@ -929,6 +1083,10 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
           <button type="button" onClick={() => runInteraction("greet")}>
             <Hand size={15} />
             打招呼
+          </button>
+          <button type="button" onClick={() => runInteraction("kiss")}>
+            <Heart size={15} />
+            飞吻
           </button>
           <button type="button" onClick={() => runInteraction("nod")}>
             <Smile size={15} />

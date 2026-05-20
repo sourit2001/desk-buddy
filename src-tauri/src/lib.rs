@@ -47,6 +47,12 @@ struct MmdAsset {
     file_name: String,
 }
 
+#[derive(Debug, Serialize)]
+struct CursorPosition {
+    x: f64,
+    y: f64,
+}
+
 #[derive(Debug, Error)]
 enum AppError {
     #[error("Base URL、API Key 和 Model 都不能为空")]
@@ -157,6 +163,42 @@ async fn read_mmd_asset(path: String) -> Result<String, AppError> {
     ))
 }
 
+#[cfg(target_os = "macos")]
+#[repr(C)]
+struct CGPoint {
+    x: f64,
+    y: f64,
+}
+
+#[cfg(target_os = "macos")]
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    fn CGEventCreate(source: *const std::ffi::c_void) -> *mut std::ffi::c_void;
+    fn CGEventGetLocation(event: *mut std::ffi::c_void) -> CGPoint;
+    fn CFRelease(cf: *const std::ffi::c_void);
+}
+
+#[tauri::command]
+async fn cursor_position() -> Result<Option<CursorPosition>, AppError> {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe {
+            let event = CGEventCreate(std::ptr::null());
+            if event.is_null() {
+                return Ok(None);
+            }
+            let point = CGEventGetLocation(event);
+            CFRelease(event);
+            return Ok(Some(CursorPosition { x: point.x, y: point.y }));
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(None)
+    }
+}
+
 #[tauri::command]
 async fn show_settings(app: tauri::AppHandle) -> Result<(), AppError> {
     let window = app
@@ -261,6 +303,7 @@ pub fn run() {
             save_config,
             save_mmd_asset,
             read_mmd_asset,
+            cursor_position,
             show_settings,
             show_pet,
             open_new_instance,

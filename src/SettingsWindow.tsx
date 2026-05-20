@@ -491,7 +491,7 @@ export function SettingsWindow() {
               <span>宽度</span>
               <input
                 type="number"
-                min={180}
+                min={220}
                 max={640}
                 value={config.window.width}
                 onChange={(event) =>
@@ -503,7 +503,7 @@ export function SettingsWindow() {
               <span>高度</span>
               <input
                 type="number"
-                min={180}
+                min={260}
                 max={720}
                 value={config.window.height}
                 onChange={(event) =>
@@ -626,6 +626,16 @@ export function SettingsWindow() {
               }
             />
             启用表情变化
+          </label>
+          <label className="check-row">
+            <input
+              type="checkbox"
+              checked={config.animation.gazeFollowMouse}
+              onChange={(event) =>
+                updateConfigAndPersist({ ...config, animation: { ...config.animation, gazeFollowMouse: event.target.checked } })
+              }
+            />
+            眼睛跟随鼠标
           </label>
           {activePet.displayMode === "image" && (
             <>

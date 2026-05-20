@@ -9,6 +9,11 @@ function mergeConfig(value: Partial<AppConfig>): AppConfig {
   const legacyImages = value.petImages?.length ? value.petImages : value.petImageDataUrl ? [value.petImageDataUrl] : [];
   const pets = normalizePets(value, legacyImages);
   const activePetId = pets.some((pet) => pet.id === value.activePetId) ? String(value.activePetId) : pets[0].id;
+  const windowConfig = { ...defaultConfig.window, ...value.window };
+  if (windowConfig.width === 500 && windowConfig.height === 500) {
+    windowConfig.width = defaultConfig.window.width;
+    windowConfig.height = defaultConfig.window.height;
+  }
   const animation = { ...defaultConfig.animation, ...value.animation };
   if (animation.imageSwitchSeconds >= 3 && value.animation?.framePlayback === undefined) {
     animation.imageSwitchSeconds = defaultConfig.animation.imageSwitchSeconds;
@@ -22,7 +27,7 @@ function mergeConfig(value: Partial<AppConfig>): AppConfig {
     ...value,
     activePetId,
     pets,
-    window: { ...defaultConfig.window, ...value.window },
+    window: windowConfig,
     animation,
     imageProcessing: { ...defaultConfig.imageProcessing, ...value.imageProcessing },
     llm: { ...defaultConfig.llm, ...value.llm },
