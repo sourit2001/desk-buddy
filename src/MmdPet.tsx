@@ -364,35 +364,77 @@ function fitObjectToView(object: Group | SkinnedMesh, camera: PerspectiveCamera,
   return { height, scale, width };
 }
 
-function keepObjectInView(object: Group | SkinnedMesh, camera: PerspectiveCamera, topAligned: boolean) {
+function getCameraViewSize(camera: PerspectiveCamera, centerZ: number) {
+  const distance = Math.max(0.1, camera.position.z - centerZ);
+  const verticalView = 2 * Math.tan((camera.fov * Math.PI) / 360) * distance;
+  return {
+    horizontalView: verticalView * camera.aspect,
+    verticalView,
+  };
+}
+
+function getObjectBounds(object: Group | SkinnedMesh) {
+  object.updateMatrixWorld(true);
   const bounds = new Box3().setFromObject(object);
   const size = new Vector3();
   const center = new Vector3();
   bounds.getSize(size);
   bounds.getCenter(center);
+  return { bounds, center, size };
+}
 
-  const distance = Math.max(0.1, camera.position.z - center.z);
-  const verticalView = 2 * Math.tan((camera.fov * Math.PI) / 360) * distance;
-  const horizontalView = verticalView * camera.aspect;
-  const paddingX = horizontalView * 0.08;
-  const paddingTop = 0;
-  const paddingBottom = verticalView * 0.13;
-  const minX = -horizontalView / 2 + paddingX;
-  const maxX = horizontalView / 2 - paddingX;
-  const minY = -verticalView / 2 + paddingBottom;
-  const maxY = verticalView / 2 - paddingTop;
+function keepObjectInView(object: Group | SkinnedMesh, camera: PerspectiveCamera, topAligned: boolean, baseScale: number) {
+  let { bounds, center, size } = getObjectBounds(object);
+  let { horizontalView, verticalView } = getCameraViewSize(camera, center.z);
+  let paddingX = horizontalView * 0.035;
+  let paddingTop = topAligned ? verticalView * 0.018 : verticalView * 0.025;
+  let paddingBottom = verticalView * 0.055;
+  let minX = -horizontalView / 2 + paddingX;
+  let maxX = horizontalView / 2 - paddingX;
+  let minY = -verticalView / 2 + paddingBottom;
+  let maxY = verticalView / 2 - paddingTop;
+  let availableWidth = Math.max(0.001, maxX - minX);
+  let availableHeight = Math.max(0.001, maxY - minY);
+  let currentScale = object.scale.x || baseScale;
+  const minScale = Math.max(0.001, baseScale * 0.04);
+
+  for (let attempt = 0; attempt < 4 && (size.x > availableWidth || size.y > availableHeight); attempt += 1) {
+    const fitRatio = Math.min(availableWidth / Math.max(size.x, 0.001), availableHeight / Math.max(size.y, 0.001)) * 0.86;
+    currentScale = Math.max(minScale, currentScale * fitRatio);
+    object.scale.setScalar(currentScale);
+    ({ bounds, center, size } = getObjectBounds(object));
+    ({ horizontalView, verticalView } = getCameraViewSize(camera, center.z));
+    paddingX = horizontalView * 0.035;
+    paddingTop = topAligned ? verticalView * 0.018 : verticalView * 0.025;
+    paddingBottom = verticalView * 0.055;
+    minX = -horizontalView / 2 + paddingX;
+    maxX = horizontalView / 2 - paddingX;
+    minY = -verticalView / 2 + paddingBottom;
+    maxY = verticalView / 2 - paddingTop;
+    availableWidth = Math.max(0.001, maxX - minX);
+    availableHeight = Math.max(0.001, maxY - minY);
+  }
+
+  if (size.x <= availableWidth && size.y <= availableHeight && currentScale < baseScale) {
+    const slackRatio = Math.min(availableWidth / Math.max(size.x, 0.001), availableHeight / Math.max(size.y, 0.001));
+    if (slackRatio > 1.18) {
+      object.scale.setScalar(Math.min(baseScale, currentScale + (baseScale - currentScale) * 0.025));
+      ({ bounds, center, size } = getObjectBounds(object));
+    }
+  }
+
   let offsetX = 0;
   let offsetY = 0;
 
   if (size.x >= maxX - minX) {
-    offsetX = -center.x;
+    offsetX = (minX + maxX) / 2 - center.x;
   } else if (bounds.min.x < minX) {
     offsetX = minX - bounds.min.x;
   } else if (bounds.max.x > maxX) {
     offsetX = maxX - bounds.max.x;
   }
 
-  if (topAligned) {
+  if (topAligned && size.y < availableHeight) {
     offsetY = maxY - bounds.max.y;
   } else if (size.y >= maxY - minY) {
     offsetY = (minY + maxY) / 2 - center.y;
@@ -932,6 +974,7 @@ export function MmdPet({
     const fallback = createFallbackModel();
     let activeObject: Group | SkinnedMesh = fallback;
     let activeBaseY = -1;
+    let activeFitScale = 1;
     let disposed = false;
     let animationFrame = 0;
     let source: MmdModelSource | null = null;
@@ -974,7 +1017,7 @@ export function MmdPet({
           activeMesh,
           (animation) => {
             if (disposed || !activeMesh) return;
-            playMotionClip(helper, activeMesh, animation as AnimationClip, false);
+            playMotionClip(helper, activeMesh, animation as AnimationClip, true);
             setStatus(`自选动作：${label}`);
           },
           (event) => {
@@ -1033,7 +1076,7 @@ export function MmdPet({
 
     scene.add(fallback);
     setShadowCasting(fallback, true, false);
-    fitObjectToView(fallback, camera, 1);
+    activeFitScale = fitObjectToView(fallback, camera, 1).scale;
     activeBaseY = fallback.position.y;
 
     const resize = () => {
@@ -1134,7 +1177,7 @@ export function MmdPet({
       activeObject.rotation.z = rotationZ;
       applyProceduralRig(proceduralRig, currentMood, elapsed, poseElapsed, intensity, currentGaze);
       applyBlinkMorph(blinkMorphTargets, elapsed, blinkStartedAt);
-      keepObjectInView(activeObject, camera, topAlignedRef.current);
+      keepObjectInView(activeObject, camera, topAlignedRef.current, activeFitScale);
       groundShadow.position.x = activeObject.position.x;
       groundShadow.position.y = activeBaseY - 0.02;
       groundShadow.scale.setScalar(1 + Math.abs(positionY - activeBaseY) * 0.35);
@@ -1170,6 +1213,7 @@ export function MmdPet({
                 if (disposed) return;
                 scene.remove(fallback);
                 const fit = fitObjectToView(mesh, camera, 1);
+                activeFitScale = fit.scale;
                 let appliedTextures = 0;
                 const materialStats = fixMmdMaterials(mesh, () => {
                   appliedTextures += 1;

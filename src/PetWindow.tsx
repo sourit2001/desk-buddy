@@ -570,11 +570,11 @@ export function PetWindow() {
   const expressionStyle = useMemo(() => {
     if (!isMmdMode) {
       return {
-        top: "22%",
-        transform: "translateX(-50%) scale(1.1)",
+        top: "24%",
+        transform: "translateX(-50%) scale(0.95)",
         left: "50%",
-        width: "150px",
-        height: "150px",
+        width: "118px",
+        height: "118px",
         position: "absolute" as const,
       };
     }
@@ -587,10 +587,10 @@ export function PetWindow() {
 
     return {
       top: `${headTopPercent}%`,
-      transform: `translateX(-50%) scale(${Math.max(0.6, scale * 1.2)})`,
+      transform: `translateX(-50%) scale(${Math.max(0.55, scale * 0.86)})`,
       left: "50%",
-      width: "150px",
-      height: "150px",
+      width: "118px",
+      height: "118px",
       position: "absolute" as const,
     };
   }, [isMmdMode, activePet.mmdScale, config.window.topAligned]);
@@ -738,13 +738,16 @@ export function PetWindow() {
         ? null
         : {
             x: Math.max(8, window.innerWidth - 170),
-            y: 46,
+            y: 8,
           },
     );
   }
 
   function runCustomMotion(motion: MmdCustomMotion) {
     setPetMenu(null);
+    if (idleActionStartTimeoutRef.current) window.clearTimeout(idleActionStartTimeoutRef.current);
+    if (interactionTimeoutRef.current) window.clearTimeout(interactionTimeoutRef.current);
+    if (expressionTimeoutRef.current) window.clearTimeout(expressionTimeoutRef.current);
     setActiveCustomMotion({ motion, trigger: Date.now() });
     commitPetState((state) => ({
       affection: clamp(state.affection + 1),
@@ -752,7 +755,9 @@ export function PetWindow() {
       lastInteractionAt: Date.now(),
     }));
     setBubble(`正在播放：${motion.name}`);
-    interact(`动作：${motion.name}`, "happy", "happy");
+    setMood("customMotion");
+    setExpression("happy");
+    expressionTimeoutRef.current = window.setTimeout(() => setExpression("neutral"), 1800);
   }
 
   function runInteraction(kind: "pet" | "feed" | "nap" | "play" | "chat" | "walk" | "greet" | "nod" | "kiss") {

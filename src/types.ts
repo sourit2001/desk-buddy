@@ -12,7 +12,8 @@ export type PetMood =
   | "nod"
   | "kiss"
   | "chinRest"
-  | "work";
+  | "work"
+  | "customMotion";
 export type PetExpression = "neutral" | "happy" | "sleepy" | "shy" | "bored" | "petting" | "fireworks";
 export type PetPersonality = "gentle" | "lively" | "cool" | "clingy";
 export type RoamMode = "anywhere" | "edges" | "topBottom" | "leftRight" | "top" | "bottom" | "left" | "right" | "middle";
