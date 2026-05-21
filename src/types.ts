@@ -13,7 +13,7 @@ export type PetMood =
   | "kiss"
   | "chinRest"
   | "work";
-export type PetExpression = "neutral" | "happy" | "curious" | "sleepy" | "surprised" | "shy" | "bored" | "petting";
+export type PetExpression = "neutral" | "happy" | "sleepy" | "shy" | "bored" | "petting" | "fireworks";
 export type PetPersonality = "gentle" | "lively" | "cool" | "clingy";
 export type RoamMode = "anywhere" | "edges" | "topBottom" | "leftRight" | "top" | "bottom" | "left" | "right" | "middle";
 export type PetDisplayMode = "image" | "mmd";
@@ -54,6 +54,7 @@ export type AppConfig = {
     width: number;
     height: number;
     alwaysOnTop: boolean;
+    topAligned: boolean;
     roamEnabled: boolean;
     roamMode: RoamMode;
     roamIntervalSeconds: number;
@@ -71,6 +72,7 @@ export type AppConfig = {
   imageProcessing: {
     removeBackground: boolean;
     backgroundTolerance: number;
+    trimTransparency: boolean;
   };
   llm: {
     baseUrl: string;
@@ -108,6 +110,7 @@ export const defaultConfig: AppConfig = {
     width: 280,
     height: 340,
     alwaysOnTop: true,
+    topAligned: false,
     roamEnabled: false,
     roamMode: "edges",
     roamIntervalSeconds: 12,
@@ -125,6 +128,7 @@ export const defaultConfig: AppConfig = {
   imageProcessing: {
     removeBackground: false,
     backgroundTolerance: 42,
+    trimTransparency: true,
   },
   llm: {
     baseUrl: "https://api.openai.com/v1",

@@ -428,6 +428,27 @@ export function PetWindow() {
     appWindow.setSize(new LogicalSize(config.window.width, config.window.height));
   }, [config.window.alwaysOnTop, config.window.height, config.window.width]);
 
+  // Auto-resize the Tauri window to tightly wrap the pet when mmdScale changes.
+  // The 3D model always fills ~90% of the viewport (fitObjectToView ignores mmdScale),
+  // so changing window size directly controls the pet's visual size on screen.
+  useEffect(() => {
+    if (!isMmdMode || !isTauriRuntime()) return;
+    const scale = activePet.mmdScale;
+    const baseWidth = 260;
+    const baseHeight = 320;
+    const scaledWidth = Math.round(clamp(baseWidth * scale, 130, 520));
+    const scaledHeight = Math.round(clamp(baseHeight * scale, 160, 640));
+    if (scaledWidth === config.window.width && scaledHeight === config.window.height) return;
+
+    const nextConfig = {
+      ...config,
+      window: { ...config.window, width: scaledWidth, height: scaledHeight },
+    };
+    setConfig(nextConfig);
+    saveConfig(nextConfig).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activePet.mmdScale, isMmdMode]);
+
   useEffect(() => {
     if (!isTauriRuntime() || !config.window.roamEnabled) return;
 
@@ -516,12 +537,12 @@ export function PetWindow() {
 
   useEffect(() => {
     if (!config.animation.enabled || !config.animation.expressionEffects || mood !== "idle") {
-      if (mood === "thinking") setExpression("curious");
+      if (mood === "thinking") setExpression("neutral");
       if (mood === "speaking") setExpression("happy");
       return;
     }
 
-    const expressions: PetExpression[] = ["curious", "bored", "surprised", "sleepy", "shy", "happy", "petting"];
+    const expressions: PetExpression[] = ["bored", "sleepy", "shy", "happy", "petting", "fireworks"];
     const timeout = window.setTimeout(
       () => {
         const nextExpression = expressions[expressionIndexRef.current % expressions.length];
@@ -545,6 +566,34 @@ export function PetWindow() {
     }) as React.CSSProperties,
     [activePet.mmdScale, config.animation.enabled, config.animation.intensity, isMmdMode],
   );
+
+  const expressionStyle = useMemo(() => {
+    if (!isMmdMode) {
+      return {
+        top: "22%",
+        transform: "translateX(-50%) scale(1.1)",
+        left: "50%",
+        width: "150px",
+        height: "150px",
+        position: "absolute" as const,
+      };
+    }
+
+    // fitObjectToView always positions the model so the head touches the camera viewport top.
+    // Therefore the head is consistently near y=0% of the container regardless of mmdScale.
+    // Use a small offset that tracks scale so effects surround the head naturally.
+    const scale = activePet.mmdScale;
+    const headTopPercent = Math.max(0, 4 * scale);
+
+    return {
+      top: `${headTopPercent}%`,
+      transform: `translateX(-50%) scale(${Math.max(0.6, scale * 1.2)})`,
+      left: "50%",
+      width: "150px",
+      height: "150px",
+      position: "absolute" as const,
+    };
+  }, [isMmdMode, activePet.mmdScale, config.window.topAligned]);
 
   const currentPetImage = petImages[imageIndex] ?? "";
   const hasPetVisual = isMmdMode || Boolean(currentPetImage);
@@ -628,35 +677,35 @@ export function PetWindow() {
     ];
     const affectionateLines = [
       { text: `${activePet.name} 正在等你摸摸。`, expression: "petting" as PetExpression },
-      { text: "你刚刚是不是看我了？", expression: "curious" as PetExpression },
+      { text: "你刚刚是不是看我了？", expression: "fireworks" as PetExpression },
       { text: "我今天很乖。", expression: "happy" as PetExpression },
       { text: "陪你待着也不错。", expression: "happy" as PetExpression },
       { text: "可以靠近你一点吗？", expression: "petting" as PetExpression },
-      { text: "我在这里，不会打扰你。", expression: "curious" as PetExpression },
+      { text: "我在这里，不会打扰你。", expression: "happy" as PetExpression },
     ];
     const personalityLines = {
       gentle: [
-        { text: "休息一下眼睛吧。", expression: "curious" as PetExpression },
+        { text: "休息一下眼睛吧。", expression: "happy" as PetExpression },
         { text: "我在这里陪你。", expression: "happy" as PetExpression },
         { text: "今天也慢慢来。", expression: "bored" as PetExpression },
-        { text: "喝点水也不错。", expression: "curious" as PetExpression },
+        { text: "喝点水也不错。", expression: "happy" as PetExpression },
         { text: "不用着急，我等你。", expression: "happy" as PetExpression },
-        { text: "窗外现在安静吗？", expression: "curious" as PetExpression },
+        { text: "窗外现在安静吗？", expression: "bored" as PetExpression },
       ],
       lively: [
         { text: "要不要活动一下？", expression: "happy" as PetExpression },
-        { text: "我刚刚想到一个好玩的动作。", expression: "curious" as PetExpression },
+        { text: "我刚刚想到一个好玩的动作。", expression: "fireworks" as PetExpression },
         { text: "你忙完了吗？", expression: "petting" as PetExpression },
         { text: "我可以转一圈吗？", expression: "happy" as PetExpression },
-        { text: "现在适合小小休息一下。", expression: "curious" as PetExpression },
+        { text: "现在适合小小休息一下。", expression: "happy" as PetExpression },
         { text: "我有点想出去走走。", expression: "bored" as PetExpression },
       ],
       cool: [
-        { text: "我在巡逻。", expression: "curious" as PetExpression },
+        { text: "我在巡逻。", expression: "happy" as PetExpression },
         { text: "效率还不错。", expression: "happy" as PetExpression },
         { text: "有点无聊。", expression: "bored" as PetExpression },
-        { text: "状态稳定。", expression: "curious" as PetExpression },
-        { text: "别忘了保存。", expression: "curious" as PetExpression },
+        { text: "状态稳定。", expression: "happy" as PetExpression },
+        { text: "别忘了保存。", expression: "fireworks" as PetExpression },
         { text: "我只是路过。", expression: "bored" as PetExpression },
       ],
       clingy: [
@@ -702,6 +751,7 @@ export function PetWindow() {
       energy: clamp(state.energy - 1),
       lastInteractionAt: Date.now(),
     }));
+    setBubble(`正在播放：${motion.name}`);
     interact(`动作：${motion.name}`, "happy", "happy");
   }
 
@@ -714,7 +764,7 @@ export function PetWindow() {
 
     if (kind === "walk" || kind === "greet" || kind === "nod" || kind === "kiss") {
       const action = {
-        walk: { text: "我走两步给你看。", expression: "curious" as PetExpression, mood: "walk" as PetMood, energy: -2 },
+        walk: { text: "我走两步给你看。", expression: "happy" as PetExpression, mood: "walk" as PetMood, energy: -2 },
         greet: { text: "嗨，我在这里。", expression: "happy" as PetExpression, mood: "greet" as PetMood, energy: -1 },
         nod: { text: "嗯嗯。", expression: "happy" as PetExpression, mood: "nod" as PetMood, energy: 0 },
         kiss: { text: "给你一个飞吻。", expression: "shy" as PetExpression, mood: "kiss" as PetMood, energy: -1 },
@@ -733,7 +783,7 @@ export function PetWindow() {
         pet: { affection: 4, energy: 0, expression: "petting" as PetExpression, mood: "clicked" as PetMood },
       feed: { affection: 2, energy: 12, expression: "happy" as PetExpression, mood: "speaking" as PetMood },
       nap: { affection: 0, energy: 24, expression: "sleepy" as PetExpression, mood: "stretch" as PetMood },
-      play: { affection: 5, energy: -10, expression: "surprised" as PetExpression, mood: "happy" as PetMood },
+      play: { affection: 5, energy: -10, expression: "fireworks" as PetExpression, mood: "happy" as PetMood },
     }[kind];
 
     commitPetState((state) => ({
@@ -829,9 +879,10 @@ export function PetWindow() {
     const windowWidth = currentSize.width / scaleFactor;
     const windowHeight = currentSize.height / scaleFactor;
     const margin = shouldUseScreenEdgeBounds(config.window.roamMode) ? 8 : 28;
+    const topMargin = config.window.roamMode === "top" ? 0 : margin;
     const bounds: RoamBounds = {
       left: monitorLeft + margin,
-      top: monitorTop + margin,
+      top: monitorTop + topMargin,
       right: Math.max(monitorLeft + margin, monitorLeft + monitorWidth - windowWidth - margin),
       bottom: Math.max(monitorTop + margin, monitorTop + monitorHeight - windowHeight - margin),
     };
@@ -925,8 +976,45 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
   function renderExpressionLayer() {
     if (!config.animation.expressionEffects || expression === "neutral") return null;
 
+    if (expression === "fireworks") {
+      return (
+        <div className="expression-layer fireworks" style={expressionStyle} aria-hidden="true">
+          <div className="firework fw-one">
+            <span className="spark spark-1" />
+            <span className="spark spark-2" />
+            <span className="spark spark-3" />
+            <span className="spark spark-4" />
+            <span className="spark spark-5" />
+            <span className="spark spark-6" />
+            <span className="spark spark-7" />
+            <span className="spark spark-8" />
+          </div>
+          <div className="firework fw-two">
+            <span className="spark spark-1" />
+            <span className="spark spark-2" />
+            <span className="spark spark-3" />
+            <span className="spark spark-4" />
+            <span className="spark spark-5" />
+            <span className="spark spark-6" />
+            <span className="spark spark-7" />
+            <span className="spark spark-8" />
+          </div>
+          <div className="firework fw-three">
+            <span className="spark spark-1" />
+            <span className="spark spark-2" />
+            <span className="spark spark-3" />
+            <span className="spark spark-4" />
+            <span className="spark spark-5" />
+            <span className="spark spark-6" />
+            <span className="spark spark-7" />
+            <span className="spark spark-8" />
+          </div>
+        </div>
+      );
+    }
+
     return (
-      <div className={`expression-layer ${expression}`} aria-hidden="true">
+      <div className={`expression-layer ${expression}`} style={expressionStyle} aria-hidden="true">
         <span className="mark mark-one" />
         <span className="mark mark-two" />
         <span className="mark mark-three" />
@@ -975,9 +1063,28 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
     event.stopPropagation();
 
     const direction = event.deltaY < 0 ? 1 : -1;
+
+    if (isMmdMode) {
+      // In MMD mode, adjust mmdScale. The auto-resize effect will update the window size.
+      const step = direction > 0 ? 0.05 : -0.05;
+      const nextScale = Math.round(clamp(activePet.mmdScale + step, 0.3, 2.0) * 100) / 100;
+      if (nextScale === activePet.mmdScale) return;
+
+      const nextConfig = {
+        ...config,
+        pets: config.pets.map((pet) => (pet.id === activePet.id ? { ...pet, mmdScale: nextScale } : pet)),
+      };
+      setConfig(nextConfig);
+      if (sizeSaveTimeoutRef.current) window.clearTimeout(sizeSaveTimeoutRef.current);
+      sizeSaveTimeoutRef.current = window.setTimeout(() => {
+        saveConfig(nextConfig).catch(() => undefined);
+      }, 180);
+      return;
+    }
+
     const scale = direction > 0 ? 1.06 : 0.94;
-    const nextWidth = Math.round(clamp(config.window.width * scale, 220, 520));
-    const nextHeight = Math.round(clamp(config.window.height * scale, 260, 640));
+    const nextWidth = Math.round(clamp(config.window.width * scale, 130, 520));
+    const nextHeight = Math.round(clamp(config.window.height * scale, 160, 640));
     if (nextWidth === config.window.width && nextHeight === config.window.height) return;
 
     const nextConfig = {
@@ -998,7 +1105,7 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
 
   return (
     <main
-      className="pet-shell"
+      className={`pet-shell ${config.window.topAligned ? "top-aligned" : ""}`}
       style={petStyle}
       onClick={() => setPetMenu(null)}
       onContextMenu={handleContextMenu}
@@ -1056,6 +1163,13 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
               customMotionPath={activeCustomMotion?.motion.path ?? ""}
               customMotionName={activeCustomMotion?.motion.name ?? ""}
               customMotionTrigger={activeCustomMotion?.trigger ?? 0}
+              topAligned={config.window.topAligned}
+              onStatusChange={(statusMsg) => {
+                if (statusMsg.includes("失败")) {
+                  setBubble(statusMsg);
+                  setMood("idle");
+                }
+              }}
             />
             {renderExpressionLayer()}
           </>
@@ -1114,12 +1228,14 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
             点点头
           </button>
           {isMmdMode &&
-            activePet.mmdCustomMotions.map((motion) => (
-              <button type="button" key={motion.id} onClick={() => runCustomMotion(motion)}>
-                <Sparkles size={15} />
-                {motion.name}
-              </button>
-            ))}
+            activePet.mmdCustomMotions
+              .filter((motion) => (motion.path || motion.dataUrl) && motion.name.trim())
+              .map((motion) => (
+                <button type="button" key={motion.id} onClick={() => runCustomMotion(motion)}>
+                  <Sparkles size={15} />
+                  {motion.name}
+                </button>
+              ))}
           <button type="button" onClick={() => runInteraction("chat")}>
             <MessageCircle size={15} />
             聊天

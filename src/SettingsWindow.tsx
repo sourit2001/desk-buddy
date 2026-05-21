@@ -1,9 +1,9 @@
 import { ChangeEvent, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CopyPlus, Eye, ImagePlus, MonitorUp, Plus, Save, SlidersHorizontal, Trash2 } from "lucide-react";
+import { CopyPlus, Eye, ImagePlus, MonitorUp, Plus, Save, SlidersHorizontal, Trash2, Crop } from "lucide-react";
 import { loadConfig, loadConfigAsync, saveConfig } from "./config";
-import { readFileAsDataUrl, removeImageBackground } from "./imageCutout";
+import { readFileAsDataUrl, removeImageBackground, trimImagesTransparencyUniformly } from "./imageCutout";
 import { isTauriRuntime } from "./tauriRuntime";
 import { AppConfig, defaultConfig, DesktopPet, getActivePet, PetDisplayMode, PetPersonality, RoamMode } from "./types";
 
@@ -31,6 +31,7 @@ function getMmdAssetFileName(asset: MmdAsset, fallback: string) {
 
 const roamModeOptions: Array<{ value: RoamMode; label: string }> = [
   { value: "edges", label: "屏幕四边" },
+  { value: "top", label: "上边缘" },
   { value: "topBottom", label: "上下边缘" },
   { value: "leftRight", label: "左右边缘" },
   { value: "left", label: "左边缘" },
@@ -152,20 +153,89 @@ export function SettingsWindow() {
     setSaveError("");
 
     try {
-      const images = await Promise.all(
+      let images = await Promise.all(
         files.map(async (file) => {
           const dataUrl = await readFileAsDataUrl(file);
           if (!config.imageProcessing.removeBackground) return dataUrl;
           return removeImageBackground(dataUrl, config.imageProcessing.backgroundTolerance);
         }),
       );
+
+      if (config.imageProcessing.trimTransparency) {
+        images = await trimImagesTransparencyUniformly(images);
+      }
+
       const nextImages = [...petImages, ...images];
-      updatePet({ ...activePet, images: nextImages });
+      const updatedPet = { ...activePet, images: nextImages };
+      
+      const nextPets = config.pets.map((pet) => (pet.id === updatedPet.id ? updatedPet : pet));
+      let nextConfig = syncActivePet({ ...config, pets: nextPets }, updatedPet);
+
+      if (petImages.length === 0 && images[0]) {
+        const img = new Image();
+        await new Promise<void>((resolve) => {
+          img.onload = () => {
+            const aspect = img.naturalWidth / Math.max(1, img.naturalHeight);
+            const nextHeight = Math.round((config.window.width - 10) / aspect + 32);
+            nextConfig = {
+              ...nextConfig,
+              window: {
+                ...nextConfig.window,
+                height: Math.max(260, Math.min(720, nextHeight)),
+              },
+            };
+            resolve();
+          };
+          img.onerror = () => resolve();
+          img.src = images[0];
+        });
+      }
+
+      updateConfigAndPersist(nextConfig);
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : String(error));
     } finally {
       setProcessingImages(false);
       event.target.value = "";
+    }
+  }
+
+  async function trimExistingImages() {
+    if (petImages.length === 0) return;
+    setProcessingImages(true);
+    setSaveError("");
+
+    try {
+      const trimmed = await trimImagesTransparencyUniformly(petImages);
+      const updatedPet = { ...activePet, images: trimmed };
+      const nextPets = config.pets.map((pet) => (pet.id === updatedPet.id ? updatedPet : pet));
+      let nextConfig = syncActivePet({ ...config, pets: nextPets }, updatedPet);
+
+      if (trimmed[0]) {
+        const img = new Image();
+        await new Promise<void>((resolve) => {
+          img.onload = () => {
+            const aspect = img.naturalWidth / Math.max(1, img.naturalHeight);
+            const nextHeight = Math.round((config.window.width - 10) / aspect + 32);
+            nextConfig = {
+              ...nextConfig,
+              window: {
+                ...nextConfig.window,
+                height: Math.max(260, Math.min(720, nextHeight)),
+              },
+            };
+            resolve();
+          };
+          img.onerror = () => resolve();
+          img.src = trimmed[0];
+        });
+      }
+
+      updateConfigAndPersist(nextConfig);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setProcessingImages(false);
     }
   }
 
@@ -312,6 +382,7 @@ export function SettingsWindow() {
         ...config.window,
         width: defaultConfig.window.width,
         height: defaultConfig.window.height,
+        topAligned: false,
         roamEnabled: false,
       },
     };
@@ -328,6 +399,41 @@ export function SettingsWindow() {
         await invoke("recover_pet_window", {
           width: defaultConfig.window.width,
           height: defaultConfig.window.height,
+        });
+      } else {
+        window.location.href = "/";
+      }
+    } catch (error) {
+      setSaved(false);
+      setSaveError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function alignPetToTop() {
+    const topSize = Math.max(220, Math.min(520, config.window.width));
+    const nextConfig = {
+      ...config,
+      window: {
+        ...config.window,
+        width: topSize,
+        height: topSize,
+        topAligned: true,
+        roamMode: "top" as RoamMode,
+      },
+    };
+
+    updateConfig(nextConfig);
+
+    try {
+      await saveConfig(nextConfig);
+      setSaved(true);
+      setSaveError("");
+      window.setTimeout(() => setSaved(false), 1600);
+
+      if (isTauriRuntime()) {
+        await invoke("align_pet_to_top", {
+          width: topSize,
+          height: topSize,
         });
       } else {
         window.location.href = "/";
@@ -469,15 +575,17 @@ export function SettingsWindow() {
               </div>
               <div className="custom-motion-list" aria-label="自选动作">
                 <span className="custom-motion-title">自选动作</span>
-                {activePet.mmdCustomMotions.length ? (
-                  activePet.mmdCustomMotions.map((motion) => (
-                    <div className="custom-motion-item" key={motion.id}>
-                      <span title={motion.name}>{motion.name}</span>
-                      <button className="tile-remove" type="button" title="删除动作" onClick={() => removeMmdCustomMotion(motion.id)}>
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  ))
+                {activePet.mmdCustomMotions.filter((m) => (m.path || m.dataUrl) && m.name.trim()).length ? (
+                  activePet.mmdCustomMotions
+                    .filter((m) => (m.path || m.dataUrl) && m.name.trim())
+                    .map((motion) => (
+                      <div className="custom-motion-item" key={motion.id}>
+                        <span title={motion.name}>{motion.name}</span>
+                        <button className="tile-remove" type="button" title="删除动作" onClick={() => removeMmdCustomMotion(motion.id)}>
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    ))
                 ) : (
                   <small>还没有添加。添加后会出现在桌宠互动菜单里。</small>
                 )}
@@ -547,6 +655,19 @@ export function SettingsWindow() {
                   }
                 />
               </label>
+              <label className="check-row">
+                <input
+                  type="checkbox"
+                  checked={config.imageProcessing.trimTransparency}
+                  onChange={(event) =>
+                    updateConfig({
+                      ...config,
+                      imageProcessing: { ...config.imageProcessing, trimTransparency: event.target.checked },
+                    })
+                  }
+                />
+                上传时自动裁剪透明边缘
+              </label>
               <div className="image-toolbar">
                 <label className="primary-button file-button">
                   <ImagePlus size={16} />
@@ -554,13 +675,25 @@ export function SettingsWindow() {
                   <input type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={updateImages} disabled={processingImages} />
                 </label>
                 {petImages.length > 0 && (
-                  <button
-                    className="ghost-button"
-                    type="button"
-                    onClick={() => updatePet({ ...activePet, images: [] })}
-                  >
-                    清空
-                  </button>
+                  <>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={trimExistingImages}
+                      disabled={processingImages}
+                    >
+                      <Crop size={15} />
+                      裁剪透明边缘
+                    </button>
+                    <button
+                      className="ghost-button"
+                      type="button"
+                      onClick={() => updatePet({ ...activePet, images: [] })}
+                      disabled={processingImages}
+                    >
+                      清空
+                    </button>
+                  </>
                 )}
               </div>
               <div className="upload-box">
@@ -690,6 +823,10 @@ export function SettingsWindow() {
           <button className="ghost-button" type="button" onClick={recoverPetWindow}>
             <MonitorUp size={16} />
             恢复桌宠位置
+          </button>
+          <button className="ghost-button" type="button" onClick={alignPetToTop}>
+            <MonitorUp size={16} />
+            贴到上边缘
           </button>
           <label className="check-row">
             <input

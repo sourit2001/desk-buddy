@@ -50,6 +50,8 @@ type MmdPetProps = {
   customMotionPath: string;
   customMotionName: string;
   customMotionTrigger: number;
+  topAligned: boolean;
+  onStatusChange?: (status: string) => void;
 };
 
 type HelperMeshState = {
@@ -353,12 +355,16 @@ function fitObjectToView(object: Group | SkinnedMesh, camera: PerspectiveCamera,
   const horizontalView = verticalView * camera.aspect;
   const scale = Math.min((verticalView * 0.9) / height, (horizontalView * 0.88) / width) * modelScale;
   object.scale.setScalar(scale);
-  object.position.set(-center.x * scale, -center.y * scale + verticalView * 0.1, -center.z * scale);
+
+  // Precision alignment: Calculate the top Y bounds after scaling, and set posY to perfectly touch the top of camera viewport
+  const scaledBounds = new Box3().setFromObject(object);
+  const posY = (verticalView / 2) - scaledBounds.max.y;
+  object.position.set(-center.x * scale, posY, -center.z * scale);
 
   return { height, scale, width };
 }
 
-function keepObjectInView(object: Group | SkinnedMesh, camera: PerspectiveCamera) {
+function keepObjectInView(object: Group | SkinnedMesh, camera: PerspectiveCamera, topAligned: boolean) {
   const bounds = new Box3().setFromObject(object);
   const size = new Vector3();
   const center = new Vector3();
@@ -369,7 +375,7 @@ function keepObjectInView(object: Group | SkinnedMesh, camera: PerspectiveCamera
   const verticalView = 2 * Math.tan((camera.fov * Math.PI) / 360) * distance;
   const horizontalView = verticalView * camera.aspect;
   const paddingX = horizontalView * 0.08;
-  const paddingTop = verticalView * 0.01;
+  const paddingTop = 0;
   const paddingBottom = verticalView * 0.13;
   const minX = -horizontalView / 2 + paddingX;
   const maxX = horizontalView / 2 - paddingX;
@@ -386,7 +392,9 @@ function keepObjectInView(object: Group | SkinnedMesh, camera: PerspectiveCamera
     offsetX = maxX - bounds.max.x;
   }
 
-  if (size.y >= maxY - minY) {
+  if (topAligned) {
+    offsetY = maxY - bounds.max.y;
+  } else if (size.y >= maxY - minY) {
     offsetY = (minY + maxY) / 2 - center.y;
   } else if (bounds.min.y < minY) {
     offsetY = minY - bounds.min.y;
@@ -881,12 +889,20 @@ export function MmdPet({
   customMotionPath,
   customMotionName,
   customMotionTrigger,
+  topAligned,
+  onStatusChange,
 }: MmdPetProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const moodRef = useRef(mood);
   const gazeRef = useRef(gaze);
+  const topAlignedRef = useRef(topAligned);
   const customMotionRef = useRef({ dataUrl: customMotionDataUrl, path: customMotionPath, name: customMotionName, trigger: customMotionTrigger });
+  const onStatusChangeRef = useRef(onStatusChange);
   const [status, setStatus] = useState(modelPath || modelDataUrl ? "加载 MMD" : "MMD 预览");
+
+  useEffect(() => {
+    onStatusChangeRef.current = onStatusChange;
+  }, [onStatusChange]);
 
   useEffect(() => {
     moodRef.current = mood;
@@ -895,6 +911,10 @@ export function MmdPet({
   useEffect(() => {
     gazeRef.current = gaze;
   }, [gaze]);
+
+  useEffect(() => {
+    topAlignedRef.current = topAligned;
+  }, [topAligned]);
 
   useEffect(() => {
     customMotionRef.current = { dataUrl: customMotionDataUrl, path: customMotionPath, name: customMotionName, trigger: customMotionTrigger };
@@ -961,11 +981,19 @@ export function MmdPet({
             if (!disposed) setStatus(`正在读取自选动作：${label}${formatLoadProgress(event)}`);
           },
           (error) => {
-            if (!disposed) setStatus(`自选动作失败：${formatMmdError(error)}`);
+            if (!disposed) {
+              const errMsg = `自选动作失败：${formatMmdError(error)}`;
+              setStatus(errMsg);
+              onStatusChangeRef.current?.(errMsg);
+            }
           },
         );
       } catch (error) {
-        if (!disposed) setStatus(`自选动作失败：${formatMmdError(error)}`);
+        if (!disposed) {
+          const errMsg = `自选动作失败：${formatMmdError(error)}`;
+          setStatus(errMsg);
+          onStatusChangeRef.current?.(errMsg);
+        }
       }
     };
 
@@ -1005,7 +1033,7 @@ export function MmdPet({
 
     scene.add(fallback);
     setShadowCasting(fallback, true, false);
-    fitObjectToView(fallback, camera, modelScale);
+    fitObjectToView(fallback, camera, 1);
     activeBaseY = fallback.position.y;
 
     const resize = () => {
@@ -1034,7 +1062,11 @@ export function MmdPet({
       if (activeMesh && customMotionRequest.trigger !== lastCustomMotionTrigger) {
         lastCustomMotionTrigger = customMotionRequest.trigger;
         playCustomMotion().catch((error) => {
-          if (!disposed) setStatus(`自选动作失败：${formatMmdError(error)}`);
+          if (!disposed) {
+            const errMsg = `自选动作失败：${formatMmdError(error)}`;
+            setStatus(errMsg);
+            onStatusChangeRef.current?.(errMsg);
+          }
         });
       }
       if (currentMood !== currentPoseMood) {
@@ -1102,7 +1134,7 @@ export function MmdPet({
       activeObject.rotation.z = rotationZ;
       applyProceduralRig(proceduralRig, currentMood, elapsed, poseElapsed, intensity, currentGaze);
       applyBlinkMorph(blinkMorphTargets, elapsed, blinkStartedAt);
-      keepObjectInView(activeObject, camera);
+      keepObjectInView(activeObject, camera, topAlignedRef.current);
       groundShadow.position.x = activeObject.position.x;
       groundShadow.position.y = activeBaseY - 0.02;
       groundShadow.scale.setScalar(1 + Math.abs(positionY - activeBaseY) * 0.35);
@@ -1128,15 +1160,16 @@ export function MmdPet({
           source = preparedSource;
           setStatus(`正在加载模型：${preparedSource.modelLabel}`);
           loader = new MMDLoader(preparedSource.manager);
-          loader.setResourcePath(isZipSource(modelName) ? zipBaseUrl : fileBaseUrl);
+          const mmdLoader = loader;
+          mmdLoader.setResourcePath(isZipSource(modelName) ? zipBaseUrl : fileBaseUrl);
           loadMmdMesh(
-            loader,
+            mmdLoader,
             preparedSource,
             (mesh) => {
               try {
                 if (disposed) return;
                 scene.remove(fallback);
-                const fit = fitObjectToView(mesh, camera, modelScale);
+                const fit = fitObjectToView(mesh, camera, 1);
                 let appliedTextures = 0;
                 const materialStats = fixMmdMaterials(mesh, () => {
                   appliedTextures += 1;
@@ -1157,7 +1190,7 @@ export function MmdPet({
                 helper.add(mesh, { physics: false });
 
                 Object.entries(builtInMotionUrls).forEach(([motionMood, motionUrl]) => {
-                  loader.loadAnimation(
+                  mmdLoader.loadAnimation(
                     motionUrl,
                     mesh,
                     (animation) => {
@@ -1172,7 +1205,7 @@ export function MmdPet({
 
                 if (preparedSource.motionUrl) {
                   setStatus(`正在解析动作：${motionLabel}`);
-                  loader.loadAnimation(
+                  mmdLoader.loadAnimation(
                     preparedSource.motionUrl,
                     mesh,
                     (animation) => {
@@ -1224,7 +1257,9 @@ export function MmdPet({
       });
       source?.dispose();
     };
-  }, [modelDataUrl, modelPath, motionDataUrl, motionPath, motionName, modelName, modelScale, intensity, gazeFollowMouse]);
+  // modelScale intentionally excluded: it controls window size, not 3D scene scale.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelDataUrl, modelPath, motionDataUrl, motionPath, motionName, modelName, intensity, gazeFollowMouse]);
 
   return <div className="mmd-stage" ref={mountRef} aria-label={status} />;
 }

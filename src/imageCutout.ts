@@ -161,3 +161,129 @@ function colorDistance(data: Uint8ClampedArray, index: number, background: Rgb) 
   const blue = data[index + 2] - background.b;
   return Math.sqrt(red * red + green * green + blue * blue);
 }
+
+export async function trimImageTransparency(dataUrl: string): Promise<string> {
+  const image = await loadImage(dataUrl);
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return dataUrl;
+
+  context.drawImage(image, 0, 0);
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+  const { data, width, height } = imageData;
+
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const index = pixelIndex(x, y, width);
+      const alpha = data[index + 3];
+      if (alpha > 5) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+
+  if (maxX === -1 || maxY === -1) {
+    return dataUrl;
+  }
+
+  const cropWidth = maxX - minX + 1;
+  const cropHeight = maxY - minY + 1;
+
+  const cropCanvas = document.createElement("canvas");
+  cropCanvas.width = cropWidth;
+  cropCanvas.height = cropHeight;
+  const cropContext = cropCanvas.getContext("2d");
+  if (!cropContext) return dataUrl;
+
+  cropContext.drawImage(
+    canvas,
+    minX,
+    minY,
+    cropWidth,
+    cropHeight,
+    0,
+    0,
+    cropWidth,
+    cropHeight,
+  );
+
+  return cropCanvas.toDataURL("image/png");
+}
+
+export async function trimImagesTransparencyUniformly(dataUrls: string[]): Promise<string[]> {
+  if (dataUrls.length === 0) return [];
+
+  const images = await Promise.all(dataUrls.map((url) => loadImage(url)));
+
+  let globalMinX = Infinity;
+  let globalMinY = Infinity;
+  let globalMaxX = -1;
+  let globalMaxY = -1;
+
+  const canvasList = images.map((image) => {
+    const canvas = document.createElement("canvas");
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (context) {
+      context.drawImage(image, 0, 0);
+      const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+      const { data, width, height } = imageData;
+
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const index = pixelIndex(x, y, width);
+          const alpha = data[index + 3];
+          if (alpha > 5) {
+            if (x < globalMinX) globalMinX = x;
+            if (x > globalMaxX) globalMaxX = x;
+            if (y < globalMinY) globalMinY = y;
+            if (y > globalMaxY) globalMaxY = y;
+          }
+        }
+      }
+    }
+    return canvas;
+  });
+
+  if (globalMaxX === -1 || globalMaxY === -1) {
+    return dataUrls;
+  }
+
+  return canvasList.map((canvas, idx) => {
+    const cropWidth = globalMaxX - globalMinX + 1;
+    const cropHeight = globalMaxY - globalMinY + 1;
+
+    const cropCanvas = document.createElement("canvas");
+    cropCanvas.width = cropWidth;
+    cropCanvas.height = cropHeight;
+    const cropContext = cropCanvas.getContext("2d");
+    if (!cropContext) return dataUrls[idx];
+
+    cropContext.drawImage(
+      canvas,
+      globalMinX,
+      globalMinY,
+      cropWidth,
+      cropHeight,
+      0,
+      0,
+      cropWidth,
+      cropHeight,
+    );
+
+    return cropCanvas.toDataURL("image/png");
+  });
+}
+

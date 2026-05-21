@@ -6,7 +6,7 @@ use std::{
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
 use thiserror::Error;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -240,6 +240,40 @@ async fn recover_pet_window(app: tauri::AppHandle, width: f64, height: f64) -> R
 }
 
 #[tauri::command]
+async fn align_pet_to_top(app: tauri::AppHandle, width: f64, height: f64) -> Result<(), AppError> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or_else(|| AppError::Window("找不到桌宠窗口".into()))?;
+
+    window.show().map_err(|error| AppError::Window(error.to_string()))?;
+    window.set_always_on_top(true).map_err(|error| AppError::Window(error.to_string()))?;
+    window
+        .set_size(LogicalSize::new(width, height))
+        .map_err(|error| AppError::Window(error.to_string()))?;
+
+    let monitor = window
+        .current_monitor()
+        .map_err(|error| AppError::Window(error.to_string()))?
+        .ok_or_else(|| AppError::Window("找不到当前屏幕".into()))?;
+    let current_position = window
+        .outer_position()
+        .map_err(|error| AppError::Window(error.to_string()))?;
+    let target_width = (width * monitor.scale_factor()).round() as i32;
+
+    let monitor_left = monitor.position().x;
+    let monitor_top = monitor.position().y;
+    let monitor_right = monitor_left + monitor.size().width as i32;
+    let max_x = (monitor_right - target_width).max(monitor_left);
+    let next_x = current_position.x.clamp(monitor_left, max_x);
+
+    window
+        .set_position(PhysicalPosition::new(next_x, monitor_top))
+        .map_err(|error| AppError::Window(error.to_string()))?;
+    window.set_focus().map_err(|error| AppError::Window(error.to_string()))?;
+    Ok(())
+}
+
+#[tauri::command]
 async fn open_new_instance() -> Result<(), AppError> {
     let executable = std::env::current_exe().map_err(|error| AppError::Window(error.to_string()))?;
     Command::new(executable)
@@ -323,6 +357,7 @@ pub fn run() {
             show_settings,
             show_pet,
             recover_pet_window,
+            align_pet_to_top,
             open_new_instance,
             quit_app,
             chat_completion
