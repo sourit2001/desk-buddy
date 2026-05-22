@@ -52,6 +52,7 @@ type MmdPetProps = {
   customMotionTrigger: number;
   topAligned: boolean;
   onStatusChange?: (status: string) => void;
+  onCustomMotionEnd?: () => void;
 };
 
 type HelperMeshState = {
@@ -915,6 +916,14 @@ function stopMotionClip(helper: MMDAnimationHelper, mesh: SkinnedMesh | null) {
   mixer.uncacheRoot(mesh);
 }
 
+function pauseMotionClip(helper: MMDAnimationHelper, mesh: SkinnedMesh | null) {
+  if (!mesh) return;
+  const mixer = getOrCreateMixer(helper, mesh);
+  if (!mixer) return;
+  mixer.stopAllAction();
+  mixer.update(0);
+}
+
 export function MmdPet({
   modelDataUrl,
   modelPath,
@@ -933,6 +942,7 @@ export function MmdPet({
   customMotionTrigger,
   topAligned,
   onStatusChange,
+  onCustomMotionEnd,
 }: MmdPetProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const moodRef = useRef(mood);
@@ -940,11 +950,16 @@ export function MmdPet({
   const topAlignedRef = useRef(topAligned);
   const customMotionRef = useRef({ dataUrl: customMotionDataUrl, path: customMotionPath, name: customMotionName, trigger: customMotionTrigger });
   const onStatusChangeRef = useRef(onStatusChange);
+  const onCustomMotionEndRef = useRef(onCustomMotionEnd);
   const [status, setStatus] = useState(modelPath || modelDataUrl ? "加载 MMD" : "MMD 预览");
 
   useEffect(() => {
     onStatusChangeRef.current = onStatusChange;
   }, [onStatusChange]);
+
+  useEffect(() => {
+    onCustomMotionEndRef.current = onCustomMotionEnd;
+  }, [onCustomMotionEnd]);
 
   useEffect(() => {
     moodRef.current = mood;
@@ -987,6 +1002,7 @@ export function MmdPet({
     let previousMotionMood: PetMood | null = null;
     let defaultMotionClip: AnimationClip | undefined;
     let customMotionObjectUrl = "";
+    let customMotionEndTimeout = 0;
     let lastCustomMotionTrigger = customMotionRef.current.trigger;
     let loadingCustomMotionTrigger = 0;
     const builtInMotionClips = new Map<PetMood, AnimationClip>();
@@ -1005,6 +1021,7 @@ export function MmdPet({
       if (!activeMesh || !loader || !request.trigger || request.trigger === loadingCustomMotionTrigger || (!request.path && !request.dataUrl)) return;
 
       loadingCustomMotionTrigger = request.trigger;
+      if (customMotionEndTimeout) window.clearTimeout(customMotionEndTimeout);
       const label = request.name || "自选动作";
       setStatus(`正在读取自选动作：${label}`);
       try {
@@ -1017,8 +1034,19 @@ export function MmdPet({
           activeMesh,
           (animation) => {
             if (disposed || !activeMesh) return;
-            playMotionClip(helper, activeMesh, animation as AnimationClip, true);
+            const clip = animation as AnimationClip;
+            playMotionClip(helper, activeMesh, clip, true);
             setStatus(`自选动作：${label}`);
+            const durationMs = Number.isFinite(clip.duration) && clip.duration > 0 ? clip.duration * 1000 : 6000;
+            const minCustomMotionDurationMs = 3 * 60 * 1000;
+            const maxCustomMotionDurationMs = 30 * 60 * 1000;
+            const finishAfter = Math.min(maxCustomMotionDurationMs, Math.max(minCustomMotionDurationMs, durationMs + 300));
+            const trigger = request.trigger;
+            customMotionEndTimeout = window.setTimeout(() => {
+              if (disposed || customMotionRef.current.trigger !== trigger) return;
+              setStatus(`自选动作完成：${label}`);
+              onCustomMotionEndRef.current?.();
+            }, finishAfter);
           },
           (event) => {
             if (!disposed) setStatus(`正在读取自选动作：${label}${formatLoadProgress(event)}`);
@@ -1099,6 +1127,10 @@ export function MmdPet({
           playMotionClip(helper, activeMesh, clip, false);
         } else if (currentMood === "idle") {
           stopMotionClip(helper, activeMesh);
+        } else if (currentMood !== "customMotion") {
+          // Skip pause for "customMotion" — the VMD loads asynchronously and
+          // playMotionClip will stop old animations once the file is ready.
+          pauseMotionClip(helper, activeMesh);
         }
       }
       const customMotionRequest = customMotionRef.current;
@@ -1120,20 +1152,23 @@ export function MmdPet({
       const poseWeight = smoothStep(poseElapsed / 0.72);
       const moodBoost = currentMood === "speaking" || currentMood === "happy" || currentMood === "wiggle" ? 1.8 : 1;
       const motion = Math.max(0, intensity) * moodBoost;
+      const isCustomMotion = currentMood === "customMotion";
       let rotationX = 0;
       let rotationY = 0;
       let rotationZ = 0;
       let positionX = 0;
       let positionY = activeBaseY;
 
-      resetProceduralRig(proceduralRig);
+      if (!isCustomMotion) resetProceduralRig(proceduralRig);
       if (helper.meshes.length > 0) helper.update(delta);
       if (elapsed >= nextBlinkAt) {
         blinkStartedAt = elapsed;
         nextBlinkAt = elapsed + 2.2 + Math.random() * 3.6;
       }
-      stabilizeFacing(proceduralRig);
-      neutralizeEyePose(proceduralRig);
+      if (!isCustomMotion) {
+        stabilizeFacing(proceduralRig);
+        neutralizeEyePose(proceduralRig);
+      }
       if (currentMood === "idle" && elapsed >= nextIdleLookAt) {
         idleLookTarget.x = (Math.random() - 0.5) * 0.08;
         idleLookTarget.y = Math.random() * 0.06;
@@ -1175,7 +1210,7 @@ export function MmdPet({
       activeObject.rotation.x = rotationX;
       activeObject.rotation.y = rotationY;
       activeObject.rotation.z = rotationZ;
-      applyProceduralRig(proceduralRig, currentMood, elapsed, poseElapsed, intensity, currentGaze);
+      if (!isCustomMotion) applyProceduralRig(proceduralRig, currentMood, elapsed, poseElapsed, intensity, currentGaze);
       applyBlinkMorph(blinkMorphTargets, elapsed, blinkStartedAt);
       keepObjectInView(activeObject, camera, topAlignedRef.current, activeFitScale);
       groundShadow.position.x = activeObject.position.x;
@@ -1292,6 +1327,7 @@ export function MmdPet({
       renderer.dispose();
       renderer.domElement.remove();
       if (customMotionObjectUrl) URL.revokeObjectURL(customMotionObjectUrl);
+      if (customMotionEndTimeout) window.clearTimeout(customMotionEndTimeout);
       scene.traverse((object) => {
         const mesh = object as Mesh;
         mesh.geometry?.dispose();

@@ -542,15 +542,14 @@ export function PetWindow() {
       return;
     }
 
-    const expressions: PetExpression[] = ["bored", "sleepy", "shy", "happy", "petting", "fireworks"];
+    const expressions: PetExpression[] = ["petting", "fireworks", "happy", "sleepy", "petting", "fireworks", "shy", "bored"];
     const timeout = window.setTimeout(
       () => {
         const nextExpression = expressions[expressionIndexRef.current % expressions.length];
         expressionIndexRef.current += 1;
         setExpression(nextExpression);
-        expressionTimeoutRef.current = window.setTimeout(() => setExpression("neutral"), 2600);
       },
-      2600,
+      2200,
     );
 
     return () => {
@@ -579,18 +578,15 @@ export function PetWindow() {
       };
     }
 
-    // fitObjectToView always positions the model so the head touches the camera viewport top.
-    // Therefore the head is consistently near y=0% of the container regardless of mmdScale.
-    // Use a small offset that tracks scale so effects surround the head naturally.
     const scale = activePet.mmdScale;
-    const headTopPercent = Math.max(0, 4 * scale);
+    const headTopPercent = Math.max(6, Math.min(14, 8 + scale * 2));
 
     return {
       top: `${headTopPercent}%`,
-      transform: `translateX(-50%) scale(${Math.max(0.55, scale * 0.86)})`,
+      transform: `translateX(-50%) scale(${Math.max(0.72, Math.min(1.08, scale * 0.72))})`,
       left: "50%",
-      width: "118px",
-      height: "118px",
+      width: "96px",
+      height: "96px",
       position: "absolute" as const,
     };
   }, [isMmdMode, activePet.mmdScale, config.window.topAligned]);
@@ -629,6 +625,7 @@ export function PetWindow() {
 
   function interact(text: string, nextExpression: PetExpression, nextMood: PetMood = "clicked") {
     setPetMenu(null);
+    if (nextMood !== "customMotion") setActiveCustomMotion(null);
     setBubble(text);
     setMood(nextMood);
     setExpression(nextExpression);
@@ -728,6 +725,8 @@ export function PetWindow() {
 
   function handleContextMenu(event: MouseEvent) {
     event.preventDefault();
+    setActiveCustomMotion(null);
+    if (moodRef.current === "customMotion") setMood("idle");
     setPetMenu({ x: Math.min(event.clientX, window.innerWidth - 164), y: Math.min(event.clientY, window.innerHeight - 258) });
   }
 
@@ -756,8 +755,8 @@ export function PetWindow() {
     }));
     setBubble(`正在播放：${motion.name}`);
     setMood("customMotion");
-    setExpression("happy");
-    expressionTimeoutRef.current = window.setTimeout(() => setExpression("neutral"), 1800);
+    setExpression("fireworks");
+    expressionTimeoutRef.current = window.setTimeout(() => setExpression("neutral"), 2600);
   }
 
   function runInteraction(kind: "pet" | "feed" | "nap" | "play" | "chat" | "walk" | "greet" | "nod" | "kiss") {
@@ -821,12 +820,13 @@ export function PetWindow() {
       return;
     }
 
+    setActiveCustomMotion(null);
     commitPetState((state) => ({
       affection: clamp(state.affection + 2),
       energy: clamp(state.energy - 1),
       lastInteractionAt: Date.now(),
     }));
-    interact(getPetLine("pet"), "happy", "clicked");
+    interact(getPetLine("pet"), "petting", "clicked");
   }
 
   async function startWindowDrag(event: MouseEvent<HTMLElement>) {
@@ -1174,6 +1174,10 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
                   setBubble(statusMsg);
                   setMood("idle");
                 }
+              }}
+              onCustomMotionEnd={() => {
+                setActiveCustomMotion(null);
+                setMood("idle");
               }}
             />
             {renderExpressionLayer()}

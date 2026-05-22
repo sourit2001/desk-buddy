@@ -53,15 +53,15 @@ button:disabled {
 .pet-actions {
   position: absolute;
   z-index: 20;
-  top: 58%;
-  bottom: auto;
+  top: auto;
+  bottom: 10px;
   left: 50%;
   right: auto;
   display: flex;
   gap: 4px;
   opacity: 0;
   pointer-events: none;
-  transform: translateX(-50%) translateY(-3px);
+  transform: translateY(-3px);
   transition:
     opacity 160ms ease,
     transform 160ms ease;
@@ -70,7 +70,7 @@ button:disabled {
 .pet-shell:hover .pet-actions {
   opacity: 1;
   pointer-events: auto;
-  transform: translateX(-50%) translateY(0);
+  transform: translateY(0);
 }
 
 .icon-button {
@@ -140,13 +140,10 @@ button:disabled {
 
 .pet-stage {
   position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 22px;
-  width: min(100vw, calc(100vh - 12px));
+  inset: 0;
+  width: 100%;
   max-width: 100vw;
   min-height: 96px;
-  transform: translateX(-50%);
   border: 0;
   padding: 2px;
   background: transparent;
@@ -158,8 +155,6 @@ button:disabled {
 }
 
 .pet-shell.top-aligned .pet-stage {
-  bottom: 0;
-  width: min(100vw, 100vh);
   place-items: start center;
 }
 
@@ -399,18 +394,18 @@ button:disabled {
 }
 
 .expression-layer.happy .mark-one {
-  top: 22%;
-  left: 26%;
+  top: 18%;
+  left: 30%;
 }
 
 .expression-layer.happy .mark-two {
-  top: 28%;
-  left: 68%;
+  top: 22%;
+  left: 66%;
   animation-delay: 180ms;
 }
 
 .expression-layer.happy .mark-three {
-  top: 6%;
+  top: 2%;
   left: 49%;
   animation-delay: 320ms;
 }
@@ -438,20 +433,20 @@ button:disabled {
 }
 
 .expression-layer.sleepy .mark-one {
-  top: -10%;
-  left: 60%;
+  top: -2%;
+  left: 58%;
 }
 
 .expression-layer.sleepy .mark-two {
-  top: -30%;
-  left: 75%;
+  top: -14%;
+  left: 70%;
   transform: scale(0.78);
   animation-delay: 320ms;
 }
 
 .expression-layer.sleepy .mark-three {
-  top: 10%;
-  left: 80%;
+  top: 12%;
+  left: 74%;
   transform: scale(0.62);
   animation-delay: 620ms;
 }
@@ -491,18 +486,18 @@ button:disabled {
 }
 
 .expression-layer.bored .mark-one {
-  top: -10%;
+  top: 0;
   left: 40%;
 }
 
 .expression-layer.bored .mark-two {
-  top: -10%;
+  top: 0;
   left: 50%;
   animation-delay: 220ms;
 }
 
 .expression-layer.bored .mark-three {
-  top: -10%;
+  top: 0;
   left: 60%;
   animation-delay: 440ms;
 }
@@ -540,20 +535,20 @@ button:disabled {
 }
 
 .expression-layer.petting .mark-one {
-  top: 12%;
-  left: 28%;
+  top: 10%;
+  left: 30%;
 }
 
 .expression-layer.petting .mark-two {
-  top: 4%;
-  left: 58%;
+  top: 0;
+  left: 56%;
   transform: rotate(-45deg) scale(0.72);
   animation-delay: 220ms;
 }
 
 .expression-layer.petting .mark-three {
-  top: 30%;
-  left: 70%;
+  top: 24%;
+  left: 68%;
   transform: rotate(-45deg) scale(0.82);
   animation-delay: 420ms;
 }
@@ -565,26 +560,26 @@ button:disabled {
 
 .firework {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  width: 2px;
+  height: 2px;
   transform: translate(-50%, -50%);
 }
 
 .fw-one {
-  top: 14px;
-  left: 28px;
+  top: 16px;
+  left: 26px;
   --color-spark: #ff007f;
 }
 
 .fw-two {
-  top: 4px;
-  left: 62px;
+  top: 6px;
+  left: 52px;
   --color-spark: #00f0ff;
 }
 
 .fw-three {
-  top: 28px;
-  left: 88px;
+  top: 26px;
+  left: 76px;
   --color-spark: #ffb700;
 }
 
@@ -592,8 +587,8 @@ button:disabled {
   position: absolute;
   top: 0;
   left: 0;
-  width: 4px;
-  height: 4px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #ffffff;
   transform-origin: center;
@@ -608,8 +603,8 @@ button:disabled {
   height: 100%;
   border-radius: 50%;
   background: var(--color-spark);
-  box-shadow: 0 0 8px var(--color-spark), 0 0 16px var(--color-spark);
-  animation: firework-explode 1.4s cubic-bezier(0.1, 0.8, 0.3, 1) infinite;
+  box-shadow: 0 0 10px var(--color-spark), 0 0 22px var(--color-spark);
+  animation: firework-explode 1.45s cubic-bezier(0.1, 0.8, 0.3, 1) infinite;
 }
 
 .fw-two .spark::before {
@@ -1105,16 +1100,16 @@ button:disabled {
 @keyframes idle-drift {
   0%,
   100% {
-    transform: translateX(-50%) translateY(0) rotate(0deg);
+    transform: translateY(0) rotate(0deg);
   }
   24% {
-    transform: translateX(calc(-50% - 4px * var(--intensity))) translateY(calc(-5px * var(--intensity))) rotate(calc(-1.4deg * var(--intensity)));
+    transform: translateX(calc(-4px * var(--intensity))) translateY(calc(-5px * var(--intensity))) rotate(calc(-1.4deg * var(--intensity)));
   }
   50% {
-    transform: translateX(-50%) translateY(calc(-10px * var(--intensity))) rotate(calc(1.2deg * var(--intensity)));
+    transform: translateY(calc(-10px * var(--intensity))) rotate(calc(1.2deg * var(--intensity)));
   }
   76% {
-    transform: translateX(calc(-50% + 4px * var(--intensity))) translateY(calc(-4px * var(--intensity))) rotate(calc(0.8deg * var(--intensity)));
+    transform: translateX(calc(4px * var(--intensity))) translateY(calc(-4px * var(--intensity))) rotate(calc(0.8deg * var(--intensity)));
   }
 }
 
@@ -1170,45 +1165,45 @@ button:disabled {
 @keyframes thinking-sway {
   0%,
   100% {
-    transform: translateX(-50%) rotate(calc(-3deg * var(--intensity)));
+    transform: rotate(calc(-3deg * var(--intensity)));
   }
   50% {
-    transform: translateX(-50%) rotate(calc(3deg * var(--intensity)));
+    transform: rotate(calc(3deg * var(--intensity)));
   }
 }
 
 @keyframes speaking-bounce {
   0%,
   100% {
-    transform: translateX(-50%) translateY(0) scale(1);
+    transform: translateY(0) scale(1);
   }
   50% {
-    transform: translateX(-50%) translateY(calc(-5px * var(--intensity))) scale(calc(1 + 0.035 * var(--intensity)));
+    transform: translateY(calc(-5px * var(--intensity))) scale(calc(1 + 0.035 * var(--intensity)));
   }
 }
 
 @keyframes clicked-pop {
   0% {
-    transform: translateX(-50%) scale(1);
+    transform: scale(1);
   }
   45% {
-    transform: translateX(-50%) scale(1.16);
+    transform: scale(1.16);
   }
   100% {
-    transform: translateX(-50%) scale(1);
+    transform: scale(1);
   }
 }
 
 @keyframes stretch-look {
   0%,
   100% {
-    transform: translateX(-50%) translateY(0) rotate(0deg);
+    transform: translateY(0) rotate(0deg);
   }
   32% {
-    transform: translateX(-50%) translateY(8px) rotate(-2deg);
+    transform: translateY(8px) rotate(-2deg);
   }
   62% {
-    transform: translateX(-50%) translateY(-8px) rotate(3deg);
+    transform: translateY(-8px) rotate(3deg);
   }
 }
 
@@ -1228,19 +1223,19 @@ button:disabled {
 @keyframes playful-wiggle {
   0%,
   100% {
-    transform: translateX(-50%) rotate(0deg);
+    transform: rotate(0deg);
   }
   18% {
-    transform: translateX(calc(-50% - 7px * var(--intensity))) rotate(calc(-8deg * var(--intensity)));
+    transform: translateX(calc(-7px * var(--intensity))) rotate(calc(-8deg * var(--intensity)));
   }
   38% {
-    transform: translateX(calc(-50% + 8px * var(--intensity))) rotate(calc(7deg * var(--intensity)));
+    transform: translateX(calc(8px * var(--intensity))) rotate(calc(7deg * var(--intensity)));
   }
   62% {
-    transform: translateX(calc(-50% - 4px * var(--intensity))) rotate(calc(-4deg * var(--intensity)));
+    transform: translateX(calc(-4px * var(--intensity))) rotate(calc(-4deg * var(--intensity)));
   }
   82% {
-    transform: translateX(calc(-50% + 3px * var(--intensity))) rotate(calc(3deg * var(--intensity)));
+    transform: translateX(calc(3px * var(--intensity))) rotate(calc(3deg * var(--intensity)));
   }
 }
 
@@ -1260,16 +1255,16 @@ button:disabled {
 @keyframes happy-hop {
   0%,
   100% {
-    transform: translateX(-50%) translateY(0) scale(1);
+    transform: translateY(0) scale(1);
   }
   18% {
-    transform: translateX(-50%) translateY(5px) scaleX(1.08) scaleY(0.94);
+    transform: translateY(5px) scaleX(1.08) scaleY(0.94);
   }
   52% {
-    transform: translateX(-50%) translateY(calc(-24px * var(--intensity))) scaleX(0.96) scaleY(1.05);
+    transform: translateY(calc(-24px * var(--intensity))) scaleX(0.96) scaleY(1.05);
   }
   76% {
-    transform: translateX(-50%) translateY(2px) scaleX(1.04) scaleY(0.97);
+    transform: translateY(2px) scaleX(1.04) scaleY(0.97);
   }
 }
 
@@ -1290,87 +1285,87 @@ button:disabled {
 @keyframes tiny-walk {
   0%,
   100% {
-    transform: translateX(-50%) translateY(0) rotate(0deg);
+    transform: translateY(0) rotate(0deg);
   }
   25% {
-    transform: translateX(calc(-50% - 8px * var(--intensity))) translateY(calc(-5px * var(--intensity))) rotate(calc(-3deg * var(--intensity)));
+    transform: translateX(calc(-8px * var(--intensity))) translateY(calc(-5px * var(--intensity))) rotate(calc(-3deg * var(--intensity)));
   }
   50% {
-    transform: translateX(-50%) translateY(0) rotate(0deg);
+    transform: translateY(0) rotate(0deg);
   }
   75% {
-    transform: translateX(calc(-50% + 8px * var(--intensity))) translateY(calc(-5px * var(--intensity))) rotate(calc(3deg * var(--intensity)));
+    transform: translateX(calc(8px * var(--intensity))) translateY(calc(-5px * var(--intensity))) rotate(calc(3deg * var(--intensity)));
   }
 }
 
 @keyframes friendly-greet {
   0%,
   100% {
-    transform: translateX(-50%) rotate(0deg);
+    transform: rotate(0deg);
   }
   28% {
-    transform: translateX(-50%) rotate(calc(-5deg * var(--intensity)));
+    transform: rotate(calc(-5deg * var(--intensity)));
   }
   54% {
-    transform: translateX(-50%) rotate(calc(6deg * var(--intensity)));
+    transform: rotate(calc(6deg * var(--intensity)));
   }
   78% {
-    transform: translateX(-50%) rotate(calc(-3deg * var(--intensity)));
+    transform: rotate(calc(-3deg * var(--intensity)));
   }
 }
 
 @keyframes gentle-nod {
   0%,
   100% {
-    transform: translateX(-50%) translateY(0) rotate(0deg);
+    transform: translateY(0) rotate(0deg);
   }
   42% {
-    transform: translateX(-50%) translateY(calc(5px * var(--intensity))) rotate(calc(2deg * var(--intensity)));
+    transform: translateY(calc(5px * var(--intensity))) rotate(calc(2deg * var(--intensity)));
   }
   72% {
-    transform: translateX(-50%) translateY(calc(-3px * var(--intensity))) rotate(calc(-1deg * var(--intensity)));
+    transform: translateY(calc(-3px * var(--intensity))) rotate(calc(-1deg * var(--intensity)));
   }
 }
 
 @keyframes chin-rest-sway {
   0%,
   100% {
-    transform: translateX(-50%) translateY(0) rotate(0deg);
+    transform: translateY(0) rotate(0deg);
   }
   36% {
-    transform: translateX(calc(-50% - 5px * var(--intensity))) translateY(calc(4px * var(--intensity))) rotate(calc(-4deg * var(--intensity)));
+    transform: translateX(calc(-5px * var(--intensity))) translateY(calc(4px * var(--intensity))) rotate(calc(-4deg * var(--intensity)));
   }
   70% {
-    transform: translateX(calc(-50% - 2px * var(--intensity))) translateY(calc(2px * var(--intensity))) rotate(calc(-2deg * var(--intensity)));
+    transform: translateX(calc(-2px * var(--intensity))) translateY(calc(2px * var(--intensity))) rotate(calc(-2deg * var(--intensity)));
   }
 }
 
 @keyframes focused-work {
   0%,
   100% {
-    transform: translateX(-50%) translateY(0) rotate(0deg);
+    transform: translateY(0) rotate(0deg);
   }
   18%,
   54%,
   82% {
-    transform: translateX(-50%) translateY(calc(2px * var(--intensity))) rotate(calc(-1deg * var(--intensity)));
+    transform: translateY(calc(2px * var(--intensity))) rotate(calc(-1deg * var(--intensity)));
   }
   34%,
   68% {
-    transform: translateX(-50%) translateY(calc(-2px * var(--intensity))) rotate(calc(1deg * var(--intensity)));
+    transform: translateY(calc(-2px * var(--intensity))) rotate(calc(1deg * var(--intensity)));
   }
 }
 
 @keyframes sleepy-slump {
   0%,
   100% {
-    transform: translateX(-50%) translateY(0) rotate(0deg);
+    transform: translateY(0) rotate(0deg);
   }
   28% {
-    transform: translateX(-50%) translateY(calc(8px * var(--intensity))) rotate(calc(5deg * var(--intensity)));
+    transform: translateY(calc(8px * var(--intensity))) rotate(calc(5deg * var(--intensity)));
   }
   64% {
-    transform: translateX(-50%) translateY(calc(5px * var(--intensity))) rotate(calc(3deg * var(--intensity)));
+    transform: translateY(calc(5px * var(--intensity))) rotate(calc(3deg * var(--intensity)));
   }
 }
 
@@ -1528,16 +1523,16 @@ button:disabled {
 @keyframes firework-explode {
   0% {
     transform: translateY(0) scale(1);
-    filter: drop-shadow(0 0 2px var(--color-spark)) brightness(1.5);
+    filter: drop-shadow(0 0 3px var(--color-spark)) brightness(1.55);
     opacity: 1;
   }
   50% {
-    filter: drop-shadow(0 0 6px var(--color-spark)) brightness(1.8);
+    filter: drop-shadow(0 0 9px var(--color-spark)) brightness(1.9);
     opacity: 1;
   }
   100% {
-    transform: translateY(-24px) translateX(2px) scale(0.28);
-    filter: drop-shadow(0 0 1px var(--color-spark)) brightness(1);
+    transform: translateY(-34px) translateX(4px) scale(0.34);
+    filter: drop-shadow(0 0 2px var(--color-spark)) brightness(1);
     opacity: 0;
   }
 }
