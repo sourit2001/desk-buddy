@@ -571,7 +571,7 @@ export function SettingsWindow() {
                   llm: {
                     ...config.llm,
                     baseUrl: "https://api.deepseek.com",
-                    model: "deepseek-chat",
+                    model: "deepseek-v4-flash",
                   },
                 })
               }
