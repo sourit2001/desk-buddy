@@ -555,7 +555,7 @@ export function SettingsWindow() {
                   llm: {
                     ...config.llm,
                     baseUrl: "https://openrouter.ai/api/v1",
-                    model: "google/gemma-4-26b-a4b-it:free",
+                    model: "google/gemma-2-9b-it:free",
                   },
                 })
               }
@@ -571,7 +571,7 @@ export function SettingsWindow() {
                   llm: {
                     ...config.llm,
                     baseUrl: "https://api.deepseek.com",
-                    model: "deepseek-v4-flash",
+                    model: "deepseek-chat",
                   },
                 })
               }

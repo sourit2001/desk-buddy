@@ -134,7 +134,7 @@ export const defaultConfig: AppConfig = {
   llm: {
     baseUrl: "https://openrouter.ai/api/v1",
     apiKey: "YOUR_OPENROUTER_API_KEY", // 预置的 API Key 占位符
-    model: "google/gemma-4-26b-a4b-it:free",
+    model: "google/gemma-2-9b-it:free",
     systemPrompt: "你是一个温和、简洁、会陪伴用户的桌面宠物。回答要短，像聊天一样自然。",
   },
 };
