@@ -329,7 +329,7 @@ async fn chat_completion(request: ChatRequest) -> Result<String, AppError> {
     if base_url.contains("openrouter.ai") {
         builder = builder
             .header("HTTP-Referer", "https://github.com/sourit2001/desk-buddy")
-            .header("X-Title", "Desk Buddy");
+            .header("X-OpenRouter-Title", "Desk Buddy");
     }
 
     let response = builder
