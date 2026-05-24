@@ -302,9 +302,14 @@ async fn quit_app(app: tauri::AppHandle) -> Result<(), AppError> {
 
 #[tauri::command]
 async fn chat_completion(request: ChatRequest) -> Result<String, AppError> {
-    let base_url = request.base_url.trim().trim_end_matches('/');
+    let mut base_url = request.base_url.trim().trim_end_matches('/').to_string();
     let api_key = request.api_key.trim();
     let model = request.model.trim();
+
+    // 智能纠错：若用户使用 DeepSeek 官方接口且未加 /v1，自动为其补齐，确保连通性
+    if base_url == "https://api.deepseek.com" {
+        base_url = "https://api.deepseek.com/v1".to_string();
+    }
 
     if base_url.is_empty() || api_key.is_empty() || model.is_empty() {
         return Err(AppError::MissingConfig);
