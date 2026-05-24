@@ -554,6 +554,22 @@ export function SettingsWindow() {
                   ...config,
                   llm: {
                     ...config.llm,
+                    baseUrl: "https://openrouter.ai/api/v1",
+                    model: "google/gemma-4-26b-a4b-it:free",
+                  },
+                })
+              }
+            >
+              使用 OpenRouter (Gemma)
+            </button>
+            <button
+              className="ghost-button compact"
+              type="button"
+              onClick={() =>
+                updateConfig({
+                  ...config,
+                  llm: {
+                    ...config.llm,
                     baseUrl: "https://api.deepseek.com",
                     model: "deepseek-v4-flash",
                   },

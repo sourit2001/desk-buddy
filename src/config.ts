@@ -22,6 +22,15 @@ function mergeConfig(value: Partial<AppConfig>): AppConfig {
     animation.imageSwitchSeconds = defaultConfig.animation.imageSwitchSeconds;
   }
 
+  const rawLlm = value.llm || {};
+  const isLegacyOpenAi = !rawLlm.baseUrl || rawLlm.baseUrl.includes("api.openai.com");
+  const llm = {
+    baseUrl: isLegacyOpenAi ? defaultConfig.llm.baseUrl : (rawLlm.baseUrl || defaultConfig.llm.baseUrl),
+    apiKey: (isLegacyOpenAi && (!rawLlm.apiKey || rawLlm.apiKey.trim() === "")) ? defaultConfig.llm.apiKey : (rawLlm.apiKey ?? defaultConfig.llm.apiKey),
+    model: isLegacyOpenAi ? defaultConfig.llm.model : (rawLlm.model || defaultConfig.llm.model),
+    systemPrompt: rawLlm.systemPrompt || defaultConfig.llm.systemPrompt,
+  };
+
   const nextConfig = {
     ...defaultConfig,
     ...value,
@@ -30,7 +39,7 @@ function mergeConfig(value: Partial<AppConfig>): AppConfig {
     window: windowConfig,
     animation,
     imageProcessing: { ...defaultConfig.imageProcessing, ...value.imageProcessing },
-    llm: { ...defaultConfig.llm, ...value.llm },
+    llm,
   };
   const activePet = getActivePet(nextConfig);
 
