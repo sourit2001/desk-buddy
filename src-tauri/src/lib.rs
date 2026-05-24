@@ -322,9 +322,17 @@ async fn chat_completion(request: ChatRequest) -> Result<String, AppError> {
         temperature: 0.7,
     };
 
-    let response = reqwest::Client::new()
+    let mut builder = reqwest::Client::new()
         .post(format!("{base_url}/chat/completions"))
-        .bearer_auth(api_key)
+        .bearer_auth(api_key);
+
+    if base_url.contains("openrouter.ai") {
+        builder = builder
+            .header("HTTP-Referer", "https://github.com/sourit2001/desk-buddy")
+            .header("X-Title", "Desk Buddy");
+    }
+
+    let response = builder
         .json(&payload)
         .send()
         .await?
