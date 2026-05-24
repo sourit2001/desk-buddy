@@ -13,6 +13,7 @@ import {
   Group,
   LoadingManager,
   LoopOnce,
+  LoopRepeat,
   Material,
   Mesh,
   MeshBasicMaterial,
@@ -384,12 +385,12 @@ function getObjectBounds(object: Group | SkinnedMesh) {
   return { bounds, center, size };
 }
 
-function keepObjectInView(object: Group | SkinnedMesh, camera: PerspectiveCamera, topAligned: boolean, baseScale: number) {
+function keepObjectInView(object: Group | SkinnedMesh, camera: PerspectiveCamera, topAligned: boolean, baseScale: number, strict = false) {
   let { bounds, center, size } = getObjectBounds(object);
   let { horizontalView, verticalView } = getCameraViewSize(camera, center.z);
-  let paddingX = horizontalView * 0.035;
-  let paddingTop = topAligned ? verticalView * 0.018 : verticalView * 0.025;
-  let paddingBottom = verticalView * 0.055;
+  let paddingX = horizontalView * (strict ? 0.1 : 0.035);
+  let paddingTop = topAligned ? verticalView * (strict ? 0.06 : 0.018) : verticalView * (strict ? 0.08 : 0.025);
+  let paddingBottom = verticalView * (strict ? 0.12 : 0.055);
   let minX = -horizontalView / 2 + paddingX;
   let maxX = horizontalView / 2 - paddingX;
   let minY = -verticalView / 2 + paddingBottom;
@@ -399,15 +400,15 @@ function keepObjectInView(object: Group | SkinnedMesh, camera: PerspectiveCamera
   let currentScale = object.scale.x || baseScale;
   const minScale = Math.max(0.001, baseScale * 0.04);
 
-  for (let attempt = 0; attempt < 4 && (size.x > availableWidth || size.y > availableHeight); attempt += 1) {
-    const fitRatio = Math.min(availableWidth / Math.max(size.x, 0.001), availableHeight / Math.max(size.y, 0.001)) * 0.86;
+  for (let attempt = 0; attempt < 6 && (size.x > availableWidth || size.y > availableHeight); attempt += 1) {
+    const fitRatio = Math.min(availableWidth / Math.max(size.x, 0.001), availableHeight / Math.max(size.y, 0.001)) * (strict ? 0.78 : 0.86);
     currentScale = Math.max(minScale, currentScale * fitRatio);
     object.scale.setScalar(currentScale);
     ({ bounds, center, size } = getObjectBounds(object));
     ({ horizontalView, verticalView } = getCameraViewSize(camera, center.z));
-    paddingX = horizontalView * 0.035;
-    paddingTop = topAligned ? verticalView * 0.018 : verticalView * 0.025;
-    paddingBottom = verticalView * 0.055;
+    paddingX = horizontalView * (strict ? 0.1 : 0.035);
+    paddingTop = topAligned ? verticalView * (strict ? 0.06 : 0.018) : verticalView * (strict ? 0.08 : 0.025);
+    paddingBottom = verticalView * (strict ? 0.12 : 0.055);
     minX = -horizontalView / 2 + paddingX;
     maxX = horizontalView / 2 - paddingX;
     minY = -verticalView / 2 + paddingBottom;
@@ -416,7 +417,7 @@ function keepObjectInView(object: Group | SkinnedMesh, camera: PerspectiveCamera
     availableHeight = Math.max(0.001, maxY - minY);
   }
 
-  if (size.x <= availableWidth && size.y <= availableHeight && currentScale < baseScale) {
+  if (!strict && size.x <= availableWidth && size.y <= availableHeight && currentScale < baseScale) {
     const slackRatio = Math.min(availableWidth / Math.max(size.x, 0.001), availableHeight / Math.max(size.y, 0.001));
     if (slackRatio > 1.18) {
       object.scale.setScalar(Math.min(baseScale, currentScale + (baseScale - currentScale) * 0.025));
@@ -902,7 +903,7 @@ function playMotionClip(helper: MMDAnimationHelper, mesh: SkinnedMesh | null, cl
   action.reset();
   action.enabled = true;
   action.clampWhenFinished = !loop;
-  if (!loop) action.setLoop(LoopOnce, 1);
+  action.setLoop(loop ? LoopRepeat : LoopOnce, loop ? Infinity : 1);
   action.play();
   return true;
 }
@@ -947,6 +948,8 @@ export function MmdPet({
   const mountRef = useRef<HTMLDivElement | null>(null);
   const moodRef = useRef(mood);
   const gazeRef = useRef(gaze);
+  const intensityRef = useRef(intensity);
+  const gazeFollowMouseRef = useRef(gazeFollowMouse);
   const topAlignedRef = useRef(topAligned);
   const customMotionRef = useRef({ dataUrl: customMotionDataUrl, path: customMotionPath, name: customMotionName, trigger: customMotionTrigger });
   const onStatusChangeRef = useRef(onStatusChange);
@@ -968,6 +971,14 @@ export function MmdPet({
   useEffect(() => {
     gazeRef.current = gaze;
   }, [gaze]);
+
+  useEffect(() => {
+    intensityRef.current = intensity;
+  }, [intensity]);
+
+  useEffect(() => {
+    gazeFollowMouseRef.current = gazeFollowMouse;
+  }, [gazeFollowMouse]);
 
   useEffect(() => {
     topAlignedRef.current = topAligned;
@@ -1025,15 +1036,33 @@ export function MmdPet({
       const label = request.name || "自选动作";
       setStatus(`正在读取自选动作：${label}`);
       try {
+        const requestMotionObjectUrl = await createMotionObjectUrl(request.path, request.dataUrl);
+        if (
+          !requestMotionObjectUrl ||
+          disposed ||
+          !activeMesh ||
+          !loader ||
+          customMotionRef.current.trigger !== request.trigger ||
+          moodRef.current !== "customMotion"
+        ) {
+          if (requestMotionObjectUrl) URL.revokeObjectURL(requestMotionObjectUrl);
+          return;
+        }
         if (customMotionObjectUrl) URL.revokeObjectURL(customMotionObjectUrl);
-        customMotionObjectUrl = await createMotionObjectUrl(request.path, request.dataUrl);
-        if (!customMotionObjectUrl || disposed || !activeMesh || !loader) return;
+        customMotionObjectUrl = requestMotionObjectUrl;
 
         loader.loadAnimation(
-          customMotionObjectUrl,
+          requestMotionObjectUrl,
           activeMesh,
           (animation) => {
-            if (disposed || !activeMesh) return;
+            if (
+              disposed ||
+              !activeMesh ||
+              customMotionRef.current.trigger !== request.trigger ||
+              moodRef.current !== "customMotion"
+            ) {
+              return;
+            }
             const clip = animation as AnimationClip;
             playMotionClip(helper, activeMesh, clip, true);
             setStatus(`自选动作：${label}`);
@@ -1122,6 +1151,12 @@ export function MmdPet({
       if (activeMesh && currentMood !== activeMotionMood) {
         previousMotionMood = activeMotionMood;
         activeMotionMood = currentMood;
+        if (previousMotionMood === "customMotion" && currentMood !== "customMotion") {
+          stopMotionClip(helper, activeMesh);
+          restoreRestPose(restPose);
+          restoreMorphRestPose(morphRestPose);
+          resetProceduralRig(proceduralRig);
+        }
         const clip = builtInMotionClips.get(currentMood);
         if (clip) {
           playMotionClip(helper, activeMesh, clip, false);
@@ -1151,7 +1186,8 @@ export function MmdPet({
       const poseElapsed = elapsed - poseStartedAt;
       const poseWeight = smoothStep(poseElapsed / 0.72);
       const moodBoost = currentMood === "speaking" || currentMood === "happy" || currentMood === "wiggle" ? 1.8 : 1;
-      const motion = Math.max(0, intensity) * moodBoost;
+      const currentIntensity = intensityRef.current;
+      const motion = Math.max(0, currentIntensity) * moodBoost;
       const isCustomMotion = currentMood === "customMotion";
       let rotationX = 0;
       let rotationY = 0;
@@ -1179,30 +1215,30 @@ export function MmdPet({
       }
       idleLook.x += (idleLookTarget.x - idleLook.x) * Math.min(1, delta * 1.6);
       idleLook.y += (idleLookTarget.y - idleLook.y) * Math.min(1, delta * 1.6);
-      const targetGaze = currentMood === "idle" && !gazeFollowMouse ? idleLook : gazeRef.current;
+      const targetGaze = currentMood === "idle" && !gazeFollowMouseRef.current ? idleLook : gazeRef.current;
       currentGaze.x += (targetGaze.x - currentGaze.x) * Math.min(1, delta * 7);
       currentGaze.y += (targetGaze.y - currentGaze.y) * Math.min(1, delta * 7);
 
       if (currentMood === "walk") {
-        positionX = Math.sin(poseElapsed * 8) * 0.12 * Math.max(0.3, intensity) * poseWeight;
-        positionY = activeBaseY + Math.abs(Math.sin(poseElapsed * 8)) * 0.055 * Math.max(0.3, intensity) * poseWeight;
-        rotationY = Math.sin(poseElapsed * 8) * 0.16 * Math.max(0.3, intensity) * poseWeight;
-        rotationZ = Math.sin(poseElapsed * 8) * 0.055 * Math.max(0.3, intensity) * poseWeight;
+        positionX = Math.sin(poseElapsed * 8) * 0.12 * Math.max(0.3, currentIntensity) * poseWeight;
+        positionY = activeBaseY + Math.abs(Math.sin(poseElapsed * 8)) * 0.055 * Math.max(0.3, currentIntensity) * poseWeight;
+        rotationY = Math.sin(poseElapsed * 8) * 0.16 * Math.max(0.3, currentIntensity) * poseWeight;
+        rotationZ = Math.sin(poseElapsed * 8) * 0.055 * Math.max(0.3, currentIntensity) * poseWeight;
       } else if (currentMood === "greet" || currentMood === "kiss") {
-        rotationY = Math.sin(poseElapsed * 9) * 0.24 * Math.max(0.3, intensity) * poseWeight;
-        rotationZ = Math.sin(poseElapsed * 9) * 0.075 * Math.max(0.3, intensity) * poseWeight;
-        positionY = activeBaseY + Math.sin(poseElapsed * 7) * 0.035 * Math.max(0.3, intensity) * poseWeight;
+        rotationY = Math.sin(poseElapsed * 9) * 0.24 * Math.max(0.3, currentIntensity) * poseWeight;
+        rotationZ = Math.sin(poseElapsed * 9) * 0.075 * Math.max(0.3, currentIntensity) * poseWeight;
+        positionY = activeBaseY + Math.sin(poseElapsed * 7) * 0.035 * Math.max(0.3, currentIntensity) * poseWeight;
       } else if (currentMood === "nod") {
-        rotationX = Math.sin(poseElapsed * 10) * 0.13 * Math.max(0.3, intensity) * poseWeight;
-        positionY = activeBaseY + Math.sin(poseElapsed * 10) * 0.03 * Math.max(0.3, intensity) * poseWeight;
+        rotationX = Math.sin(poseElapsed * 10) * 0.13 * Math.max(0.3, currentIntensity) * poseWeight;
+        positionY = activeBaseY + Math.sin(poseElapsed * 10) * 0.03 * Math.max(0.3, currentIntensity) * poseWeight;
       } else if (currentMood === "chinRest") {
-        rotationY = (-0.06 + Math.sin(poseElapsed * 1.8) * 0.018 * Math.max(0.3, intensity)) * poseWeight;
+        rotationY = (-0.06 + Math.sin(poseElapsed * 1.8) * 0.018 * Math.max(0.3, currentIntensity)) * poseWeight;
         rotationZ = -0.025 * poseWeight;
-        positionY = activeBaseY + (-0.02 + Math.sin(poseElapsed * 2.2) * 0.009 * Math.max(0.3, intensity)) * poseWeight;
+        positionY = activeBaseY + (-0.02 + Math.sin(poseElapsed * 2.2) * 0.009 * Math.max(0.3, currentIntensity)) * poseWeight;
       } else if (currentMood === "work") {
-        rotationX = (-0.025 + Math.sin(poseElapsed * 4.2) * 0.012 * Math.max(0.3, intensity)) * poseWeight;
-        rotationY = Math.sin(poseElapsed * 2.7) * 0.055 * Math.max(0.3, intensity) * poseWeight;
-        positionY = activeBaseY + Math.sin(poseElapsed * 10) * 0.007 * Math.max(0.3, intensity) * poseWeight;
+        rotationX = (-0.025 + Math.sin(poseElapsed * 4.2) * 0.012 * Math.max(0.3, currentIntensity)) * poseWeight;
+        rotationY = Math.sin(poseElapsed * 2.7) * 0.055 * Math.max(0.3, currentIntensity) * poseWeight;
+        positionY = activeBaseY + Math.sin(poseElapsed * 10) * 0.007 * Math.max(0.3, currentIntensity) * poseWeight;
       }
 
       activeObject.position.x = positionX;
@@ -1210,9 +1246,9 @@ export function MmdPet({
       activeObject.rotation.x = rotationX;
       activeObject.rotation.y = rotationY;
       activeObject.rotation.z = rotationZ;
-      if (!isCustomMotion) applyProceduralRig(proceduralRig, currentMood, elapsed, poseElapsed, intensity, currentGaze);
+      if (!isCustomMotion) applyProceduralRig(proceduralRig, currentMood, elapsed, poseElapsed, currentIntensity, currentGaze);
       applyBlinkMorph(blinkMorphTargets, elapsed, blinkStartedAt);
-      keepObjectInView(activeObject, camera, topAlignedRef.current, activeFitScale);
+      keepObjectInView(activeObject, camera, topAlignedRef.current, activeFitScale, isCustomMotion);
       groundShadow.position.x = activeObject.position.x;
       groundShadow.position.y = activeBaseY - 0.02;
       groundShadow.scale.setScalar(1 + Math.abs(positionY - activeBaseY) * 0.35);
@@ -1267,6 +1303,15 @@ export function MmdPet({
                 setStatus(`模型已显示，贴图 ${appliedTextures}/${materialStats.materialCount}`);
 
                 helper.add(mesh, { physics: false });
+                if (moodRef.current === "customMotion" && customMotionRef.current.trigger) {
+                  playCustomMotion().catch((error) => {
+                    if (!disposed) {
+                      const errMsg = `自选动作失败：${formatMmdError(error)}`;
+                      setStatus(errMsg);
+                      onStatusChangeRef.current?.(errMsg);
+                    }
+                  });
+                }
 
                 Object.entries(builtInMotionUrls).forEach(([motionMood, motionUrl]) => {
                   mmdLoader.loadAnimation(
@@ -1339,7 +1384,7 @@ export function MmdPet({
     };
   // modelScale intentionally excluded: it controls window size, not 3D scene scale.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelDataUrl, modelPath, motionDataUrl, motionPath, motionName, modelName, intensity, gazeFollowMouse]);
+  }, [modelDataUrl, modelPath, motionDataUrl, motionPath, motionName, modelName]);
 
   return <div className="mmd-stage" ref={mountRef} aria-label={status} />;
 }

@@ -1,23 +1,25 @@
-name: Build installers
+name: Build Installers
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+    tags:
+      - "v*"
 
 jobs:
   build:
-    name: Build ${{ matrix.platform }}
+    name: Build (${{ matrix.platform }})
     runs-on: ${{ matrix.platform }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: macos-latest
-            build-command: npx tauri build --bundles app --ci
+            bundle-targets: dmg
           - platform: windows-latest
-            build-command: npm run tauri:build
+            bundle-targets: nsis
 
     steps:
       - name: Checkout
@@ -36,7 +38,7 @@ jobs:
         run: npm ci
 
       - name: Build installer
-        run: ${{ matrix.build-command }}
+        run: npx tauri build --bundles ${{ matrix.bundle-targets }} --ci
 
       - name: Upload installer artifacts
         uses: actions/upload-artifact@v4
@@ -49,3 +51,23 @@ jobs:
             src-tauri/target/release/bundle/**/*.msi
             src-tauri/target/release/bundle/**/*.exe
           if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          generate_release_notes: true
+          files: artifacts/**/*

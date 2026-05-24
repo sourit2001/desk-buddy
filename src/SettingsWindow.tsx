@@ -1,7 +1,7 @@
 import { ChangeEvent, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CopyPlus, Eye, ImagePlus, MonitorUp, Plus, Save, SlidersHorizontal, Trash2, Crop } from "lucide-react";
+import { Eye, ImagePlus, Plus, Save, SlidersHorizontal, Trash2 } from "lucide-react";
 import { loadConfig, loadConfigAsync, saveConfig } from "./config";
 import { readFileAsDataUrl, removeImageBackground, trimImagesTransparencyUniformly } from "./imageCutout";
 import { isTauriRuntime } from "./tauriRuntime";
@@ -200,45 +200,6 @@ export function SettingsWindow() {
     }
   }
 
-  async function trimExistingImages() {
-    if (petImages.length === 0) return;
-    setProcessingImages(true);
-    setSaveError("");
-
-    try {
-      const trimmed = await trimImagesTransparencyUniformly(petImages);
-      const updatedPet = { ...activePet, images: trimmed };
-      const nextPets = config.pets.map((pet) => (pet.id === updatedPet.id ? updatedPet : pet));
-      let nextConfig = syncActivePet({ ...config, pets: nextPets }, updatedPet);
-
-      if (trimmed[0]) {
-        const img = new Image();
-        await new Promise<void>((resolve) => {
-          img.onload = () => {
-            const aspect = img.naturalWidth / Math.max(1, img.naturalHeight);
-            const nextHeight = Math.round((config.window.width - 10) / aspect + 32);
-            nextConfig = {
-              ...nextConfig,
-              window: {
-                ...nextConfig.window,
-                height: Math.max(260, Math.min(720, nextHeight)),
-              },
-            };
-            resolve();
-          };
-          img.onerror = () => resolve();
-          img.src = trimmed[0];
-        });
-      }
-
-      updateConfigAndPersist(nextConfig);
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setProcessingImages(false);
-    }
-  }
-
   function removeImage(index: number) {
     const nextImages = petImages.filter((_, imageIndex) => imageIndex !== index);
     updatePet({ ...activePet, images: nextImages });
@@ -269,34 +230,6 @@ export function SettingsWindow() {
     }
   }
 
-  async function updateMmdMotion(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    try {
-      if (!file.name.toLowerCase().endsWith(".vmd")) {
-        throw new Error("动作文件请选择解压后的 .vmd，不要直接选择 zip。camera.vmd/カメラ.vmd 是镜头动作，通常不适合桌宠。");
-      }
-      const dataUrl = await readFileAsDataUrl(file);
-      if (isTauriRuntime()) {
-        const asset = await invoke<MmdAsset>("save_mmd_asset", { fileName: file.name, dataUrl });
-        updatePetAndPersist({
-          ...activePet,
-          displayMode: "mmd",
-          mmdMotionDataUrl: "",
-          mmdMotionPath: asset.path,
-          mmdMotionName: getMmdAssetFileName(asset, file.name),
-        });
-      } else {
-        updatePetAndPersist({ ...activePet, displayMode: "mmd", mmdMotionDataUrl: dataUrl, mmdMotionPath: "", mmdMotionName: file.name });
-      }
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : String(error));
-    } finally {
-      event.target.value = "";
-    }
-  }
-
   async function addMmdCustomMotions(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files ?? []);
     if (!files.length) return;
@@ -305,7 +238,7 @@ export function SettingsWindow() {
       const motions = await Promise.all(
         files.map(async (file) => {
           if (!file.name.toLowerCase().endsWith(".vmd")) {
-            throw new Error("自选动作只能添加解压后的 .vmd 文件。");
+            throw new Error("动作只能添加解压后的 .vmd 文件。");
           }
 
           const dataUrl = await readFileAsDataUrl(file);
@@ -328,10 +261,14 @@ export function SettingsWindow() {
         }),
       );
 
+      const nextMotion = motions[0];
       updatePetAndPersist({
         ...activePet,
         displayMode: "mmd",
         mmdCustomMotions: [...activePet.mmdCustomMotions, ...motions],
+        mmdMotionDataUrl: activePet.mmdMotionDataUrl || activePet.mmdMotionPath || !nextMotion ? activePet.mmdMotionDataUrl : nextMotion.dataUrl,
+        mmdMotionPath: activePet.mmdMotionDataUrl || activePet.mmdMotionPath || !nextMotion ? activePet.mmdMotionPath : nextMotion.path,
+        mmdMotionName: activePet.mmdMotionDataUrl || activePet.mmdMotionPath || !nextMotion ? activePet.mmdMotionName : nextMotion.name,
       });
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : String(error));
@@ -341,9 +278,19 @@ export function SettingsWindow() {
   }
 
   function removeMmdCustomMotion(motionId: string) {
+    const removedMotion = activePet.mmdCustomMotions.find((motion) => motion.id === motionId);
+    const remainingMotions = activePet.mmdCustomMotions.filter((motion) => motion.id !== motionId);
+    const removedDefaultMotion =
+      removedMotion &&
+      ((removedMotion.path && removedMotion.path === activePet.mmdMotionPath) ||
+        (removedMotion.dataUrl && removedMotion.dataUrl === activePet.mmdMotionDataUrl));
+
     updatePetAndPersist({
       ...activePet,
-      mmdCustomMotions: activePet.mmdCustomMotions.filter((motion) => motion.id !== motionId),
+      mmdCustomMotions: remainingMotions,
+      mmdMotionDataUrl: removedDefaultMotion ? "" : activePet.mmdMotionDataUrl,
+      mmdMotionPath: removedDefaultMotion ? "" : activePet.mmdMotionPath,
+      mmdMotionName: removedDefaultMotion ? "" : activePet.mmdMotionName,
     });
   }
 
@@ -367,110 +314,21 @@ export function SettingsWindow() {
     await getCurrentWindow().hide();
   }
 
-  async function showPetWindow() {
-    if (!isTauriRuntime()) {
-      window.location.href = "/";
-      return;
-    }
-    await invoke("show_pet");
-  }
-
-  async function recoverPetWindow() {
-    const nextConfig = {
-      ...config,
-      window: {
-        ...config.window,
-        width: defaultConfig.window.width,
-        height: defaultConfig.window.height,
-        topAligned: false,
-        roamEnabled: false,
-      },
-    };
-
-    updateConfig(nextConfig);
-
-    try {
-      await saveConfig(nextConfig);
-      setSaved(true);
-      setSaveError("");
-      window.setTimeout(() => setSaved(false), 1600);
-
-      if (isTauriRuntime()) {
-        await invoke("recover_pet_window", {
-          width: defaultConfig.window.width,
-          height: defaultConfig.window.height,
-        });
-      } else {
-        window.location.href = "/";
-      }
-    } catch (error) {
-      setSaved(false);
-      setSaveError(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function alignPetToTop() {
-    const topSize = Math.max(220, Math.min(520, config.window.width));
-    const nextConfig = {
-      ...config,
-      window: {
-        ...config.window,
-        width: topSize,
-        height: topSize,
-        topAligned: true,
-        roamMode: "top" as RoamMode,
-      },
-    };
-
-    updateConfig(nextConfig);
-
-    try {
-      await saveConfig(nextConfig);
-      setSaved(true);
-      setSaveError("");
-      window.setTimeout(() => setSaved(false), 1600);
-
-      if (isTauriRuntime()) {
-        await invoke("align_pet_to_top", {
-          width: topSize,
-          height: topSize,
-        });
-      } else {
-        window.location.href = "/";
-      }
-    } catch (error) {
-      setSaved(false);
-      setSaveError(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function openNewInstance() {
-    if (!isTauriRuntime()) {
-      window.open("/", "_blank");
-      return;
-    }
-    await invoke("open_new_instance");
-  }
-
   return (
     <main className="settings-shell">
       <header className="settings-header">
         <div>
           <h1>Desk Buddy 设置</h1>
-          <p>desk-buddy 支持图片桌宠、MMD 模型、窗口行为、通用动效和 OpenAI-compatible API。</p>
+          <p>上传形象和动作，设置性格、移动方式和对话 API。</p>
         </div>
-        <button className="primary-button" type="button" onClick={persist}>
-          <Save size={16} />
-          {saved ? "已保存" : "保存"}
-        </button>
       </header>
       {saveError && <div className="save-error">保存失败：{saveError}</div>}
 
       <section className="settings-grid">
-        <div className="panel">
+        <div className="panel identity-panel">
           <h2>
             <ImagePlus size={18} />
-            形象
+            形象与性格
           </h2>
           <div className="pet-manager">
             <div className="pet-list" aria-label="桌宠列表">
@@ -491,22 +349,17 @@ export function SettingsWindow() {
                 <Plus size={15} />
                 新增
               </button>
-              <button className="ghost-button compact" type="button" onClick={openNewInstance}>
-                <CopyPlus size={15} />
-                打开新程序
-              </button>
               <button className="ghost-button compact danger-text" type="button" onClick={deleteActivePet} disabled={config.pets.length <= 1}>
                 <Trash2 size={15} />
                 删除
               </button>
             </div>
-            <small className="pet-manager-hint">当前选择：{activePet.name}</small>
           </div>
-          <label className="field">
-            <span>当前宠物名称</span>
-            <input value={activePet.name} onChange={(event) => updatePet({ ...activePet, name: event.target.value })} />
-          </label>
-          <div className="split-fields">
+          <div className="profile-grid">
+            <label className="field">
+              <span>名称</span>
+              <input value={activePet.name} onChange={(event) => updatePet({ ...activePet, name: event.target.value })} />
+            </label>
             <label className="field">
               <span>性格</span>
               <select
@@ -528,146 +381,72 @@ export function SettingsWindow() {
                 onChange={(event) => updatePet({ ...activePet, catchphrase: event.target.value })}
               />
             </label>
+            <label className="field">
+              <span>显示模式</span>
+              <select
+                value={activePet.displayMode}
+                onChange={(event) => {
+                  const displayMode = event.target.value as PetDisplayMode;
+                  updatePet({
+                    ...activePet,
+                    displayMode,
+                    mmdMaterialMode: "texture",
+                  });
+                }}
+              >
+                {displayModeOptions.map((option) => (
+                  <option value={option.value} key={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
-          <label className="field">
-            <span>显示模式</span>
-            <select
-              value={activePet.displayMode}
-              onChange={(event) => {
-                const displayMode = event.target.value as PetDisplayMode;
-                updatePetAndPersist({
-                  ...activePet,
-                  displayMode,
-                  mmdMaterialMode: "texture",
-                });
-              }}
-            >
-              {displayModeOptions.map((option) => (
-                <option value={option.value} key={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
           {activePet.displayMode === "mmd" && (
             <div className="mmd-upload-panel">
-              <div className="image-toolbar">
+              <div className="mmd-section resource-row">
+                <span className="resource-title">形象</span>
+                <div className="mmd-file-list">
+                  <span>模型：{activePet.mmdModelName || "未选择，先显示 3D 预览"}</span>
+                </div>
                 <label className="primary-button file-button">
                   <ImagePlus size={16} />
                   选择模型包
                   <input type="file" accept=".zip,.pmx,.pmd" onChange={updateMmdModel} />
                 </label>
-                <label className="ghost-button file-button">
-                  <ImagePlus size={16} />
-                  选择动作 .vmd
-                  <input type="file" accept=".vmd" onChange={updateMmdMotion} />
-                </label>
+              </div>
+              <div className="mmd-section resource-row">
+                <span className="resource-title">动作</span>
+                <div className="mmd-file-list">
+                  <span>提示：动作请添加解压后的角色动作 .vmd；不要选择 zip 或 camera.vmd。</span>
+                </div>
                 <label className="ghost-button file-button">
                   <Plus size={16} />
-                  添加自选动作
+                  添加动作 .vmd
                   <input type="file" accept=".vmd" multiple onChange={addMmdCustomMotions} />
                 </label>
+                <div className="custom-motion-list" aria-label="已添加动作">
+                  <span className="custom-motion-title">已添加动作</span>
+                  {activePet.mmdCustomMotions.filter((m) => (m.path || m.dataUrl) && m.name.trim()).length ? (
+                    activePet.mmdCustomMotions
+                      .filter((m) => (m.path || m.dataUrl) && m.name.trim())
+                      .map((motion) => (
+                        <div className="custom-motion-item" key={motion.id}>
+                          <span title={motion.name}>{motion.name}</span>
+                          <button className="tile-remove" type="button" title="删除动作" onClick={() => removeMmdCustomMotion(motion.id)}>
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))
+                  ) : (
+                    <small>还没有添加动作。添加后会出现在桌宠互动菜单里。</small>
+                  )}
+                </div>
               </div>
-              <div className="mmd-file-list">
-                <span>模型：{activePet.mmdModelName || "未选择，先显示 3D 预览"}</span>
-                <span>动作：{activePet.mmdMotionName || "未选择，将使用程序化轻动作"}</span>
-                <span>提示：先解压动作包，再选择角色动作 .vmd；不要选择 zip 或 camera.vmd。</span>
-              </div>
-              <div className="custom-motion-list" aria-label="自选动作">
-                <span className="custom-motion-title">自选动作</span>
-                {activePet.mmdCustomMotions.filter((m) => (m.path || m.dataUrl) && m.name.trim()).length ? (
-                  activePet.mmdCustomMotions
-                    .filter((m) => (m.path || m.dataUrl) && m.name.trim())
-                    .map((motion) => (
-                      <div className="custom-motion-item" key={motion.id}>
-                        <span title={motion.name}>{motion.name}</span>
-                        <button className="tile-remove" type="button" title="删除动作" onClick={() => removeMmdCustomMotion(motion.id)}>
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    ))
-                ) : (
-                  <small>还没有添加。添加后会出现在桌宠互动菜单里。</small>
-                )}
-              </div>
-              <label className="field">
-                <span>MMD 缩放：{activePet.mmdScale.toFixed(2)}x</span>
-                <input
-                  type="range"
-                  min={0.5}
-                  max={1.8}
-                  step={0.05}
-                  value={activePet.mmdScale}
-                  onChange={(event) => updatePetAndPersist({ ...activePet, mmdScale: Number(event.target.value) })}
-                />
-              </label>
-              {(activePet.mmdModelDataUrl || activePet.mmdModelPath || activePet.mmdMotionDataUrl || activePet.mmdMotionPath) && (
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={() =>
-                    updatePetAndPersist({
-                      ...activePet,
-                      mmdModelDataUrl: "",
-                      mmdModelPath: "",
-                      mmdModelName: "",
-                      mmdMotionDataUrl: "",
-                      mmdMotionPath: "",
-                      mmdMotionName: "",
-                      mmdCustomMotions: [],
-                    })
-                  }
-                >
-                  清空 MMD
-                </button>
-              )}
             </div>
           )}
           {activePet.displayMode === "image" && (
             <>
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={config.imageProcessing.removeBackground}
-                  onChange={(event) =>
-                    updateConfig({
-                      ...config,
-                      imageProcessing: { ...config.imageProcessing, removeBackground: event.target.checked },
-                    })
-                  }
-                />
-                上传时自动抠图
-              </label>
-              <label className="field">
-                <span>抠图容差</span>
-                <input
-                  type="range"
-                  min={12}
-                  max={96}
-                  step={2}
-                  value={config.imageProcessing.backgroundTolerance}
-                  disabled={!config.imageProcessing.removeBackground}
-                  onChange={(event) =>
-                    updateConfig({
-                      ...config,
-                      imageProcessing: { ...config.imageProcessing, backgroundTolerance: Number(event.target.value) },
-                    })
-                  }
-                />
-              </label>
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={config.imageProcessing.trimTransparency}
-                  onChange={(event) =>
-                    updateConfig({
-                      ...config,
-                      imageProcessing: { ...config.imageProcessing, trimTransparency: event.target.checked },
-                    })
-                  }
-                />
-                上传时自动裁剪透明边缘
-              </label>
               <div className="image-toolbar">
                 <label className="primary-button file-button">
                   <ImagePlus size={16} />
@@ -675,32 +454,21 @@ export function SettingsWindow() {
                   <input type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={updateImages} disabled={processingImages} />
                 </label>
                 {petImages.length > 0 && (
-                  <>
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      onClick={trimExistingImages}
-                      disabled={processingImages}
-                    >
-                      <Crop size={15} />
-                      裁剪透明边缘
-                    </button>
-                    <button
-                      className="ghost-button"
-                      type="button"
-                      onClick={() => updatePet({ ...activePet, images: [] })}
-                      disabled={processingImages}
-                    >
-                      清空
-                    </button>
-                  </>
+                  <button
+                    className="ghost-button"
+                    type="button"
+                    onClick={() => updatePet({ ...activePet, images: [] })}
+                    disabled={processingImages}
+                  >
+                    清空
+                  </button>
                 )}
               </div>
               <div className="upload-box">
                 {petImages[previewIndex] ? (
                   <img key={`${previewIndex}-${petImages[previewIndex].length}`} src={petImages[previewIndex]} alt="预览" />
                 ) : (
-                  <span>{config.imageProcessing.removeBackground ? "选择普通图片，上传时自动抠图" : "选择透明 PNG，或打开自动抠图"}</span>
+                  <span>添加一张图片作为桌宠形象</span>
                 )}
               </div>
               {petImages.length > 0 && (
@@ -722,44 +490,8 @@ export function SettingsWindow() {
         <div className="panel">
           <h2>
             <SlidersHorizontal size={18} />
-            窗口与动画
+            行为
           </h2>
-          <div className="split-fields">
-            <label className="field">
-              <span>宽度</span>
-              <input
-                type="number"
-                min={220}
-                max={640}
-                value={config.window.width}
-                onChange={(event) =>
-                  updateConfig({ ...config, window: { ...config.window, width: Number(event.target.value) } })
-                }
-              />
-            </label>
-            <label className="field">
-              <span>高度</span>
-              <input
-                type="number"
-                min={260}
-                max={720}
-                value={config.window.height}
-                onChange={(event) =>
-                  updateConfig({ ...config, window: { ...config.window, height: Number(event.target.value) } })
-                }
-              />
-            </label>
-          </div>
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={config.window.alwaysOnTop}
-              onChange={(event) =>
-                updateConfig({ ...config, window: { ...config.window, alwaysOnTop: event.target.checked } })
-              }
-            />
-            置顶显示
-          </label>
           <label className="check-row">
             <input
               type="checkbox"
@@ -786,48 +518,6 @@ export function SettingsWindow() {
               ))}
             </select>
           </label>
-          <div className="split-fields">
-            <label className="field">
-              <span>移动间隔（秒）</span>
-              <input
-                type="number"
-                min={4}
-                max={60}
-                step={1}
-                value={config.window.roamIntervalSeconds}
-                onChange={(event) =>
-                  updateConfigAndPersist({
-                    ...config,
-                    window: { ...config.window, roamIntervalSeconds: Number(event.target.value) },
-                  })
-                }
-              />
-            </label>
-            <label className="field">
-              <span>移动耗时（秒）</span>
-              <input
-                type="number"
-                min={1.2}
-                max={12}
-                step={0.2}
-                value={config.window.roamDurationSeconds}
-                onChange={(event) =>
-                  updateConfigAndPersist({
-                    ...config,
-                    window: { ...config.window, roamDurationSeconds: Number(event.target.value) },
-                  })
-                }
-              />
-            </label>
-          </div>
-          <button className="ghost-button" type="button" onClick={recoverPetWindow}>
-            <MonitorUp size={16} />
-            恢复桌宠位置
-          </button>
-          <button className="ghost-button" type="button" onClick={alignPetToTop}>
-            <MonitorUp size={16} />
-            贴到上边缘
-          </button>
           <label className="check-row">
             <input
               type="checkbox"
@@ -838,81 +528,16 @@ export function SettingsWindow() {
             />
             启用动画
           </label>
-          <label className="field">
-            <span>动画强度</span>
-            <input
-              type="range"
-              min={0.2}
-              max={2}
-              step={0.1}
-              value={config.animation.intensity}
-              onChange={(event) =>
-                updateConfig({ ...config, animation: { ...config.animation, intensity: Number(event.target.value) } })
-              }
-            />
-          </label>
-          {activePet.displayMode === "image" && (
-            <label className="check-row">
-              <input
-                type="checkbox"
-                checked={config.animation.framePlayback}
-                onChange={(event) =>
-                  updateConfig({ ...config, animation: { ...config.animation, framePlayback: event.target.checked } })
-                }
-              />
-              播放多图帧动画
-            </label>
-          )}
-          <label className="check-row">
-            <input
-              type="checkbox"
-              checked={config.animation.expressionEffects}
-              onChange={(event) =>
-                updateConfig({ ...config, animation: { ...config.animation, expressionEffects: event.target.checked } })
-              }
-            />
-            启用表情变化
-          </label>
           <label className="check-row">
             <input
               type="checkbox"
               checked={config.animation.gazeFollowMouse}
               onChange={(event) =>
-                updateConfigAndPersist({ ...config, animation: { ...config.animation, gazeFollowMouse: event.target.checked } })
+                updateConfig({ ...config, animation: { ...config.animation, gazeFollowMouse: event.target.checked } })
               }
             />
             眼睛跟随鼠标
           </label>
-          {activePet.displayMode === "image" && (
-            <>
-              <label className="check-row">
-                <input
-                  type="checkbox"
-                  checked={config.animation.randomImageSwitch}
-                  onChange={(event) =>
-                    updateConfig({ ...config, animation: { ...config.animation, randomImageSwitch: event.target.checked } })
-                  }
-                />
-                偶尔随机跳帧
-              </label>
-              <label className="field">
-                <span>帧间隔（秒）</span>
-                <input
-                  type="number"
-                  min={0.3}
-                  max={5}
-                  step={0.05}
-                  value={config.animation.imageSwitchSeconds}
-                  onChange={(event) =>
-                    updateConfig({
-                      ...config,
-                      animation: { ...config.animation, imageSwitchSeconds: Number(event.target.value) },
-                    })
-                  }
-                />
-              </label>
-            </>
-          )}
         </div>
 
         <div className="panel wide">
@@ -964,34 +589,18 @@ export function SettingsWindow() {
               />
             </label>
           </div>
-          <label className="field">
-            <span>系统提示词</span>
-            <textarea
-              rows={4}
-              value={config.llm.systemPrompt}
-              onChange={(event) => updateConfig({ ...config, llm: { ...config.llm, systemPrompt: event.target.value } })}
-            />
-          </label>
         </div>
       </section>
 
       <footer className="settings-footer">
         <div className="footer-actions">
-          <button className="ghost-button" type="button" onClick={showPetWindow}>
-            <MonitorUp size={16} />
-            显示桌宠
-          </button>
-          <button className="ghost-button" type="button" onClick={recoverPetWindow}>
-            <MonitorUp size={16} />
-            恢复位置
-          </button>
           <button className="ghost-button" type="button" onClick={closeWindow}>
             关闭
           </button>
         </div>
         <button className="primary-button" type="button" onClick={persist}>
           <Save size={16} />
-          {saved ? "已保存" : "保存设置"}
+          {saved ? "已保存" : "保存全部"}
         </button>
       </footer>
     </main>

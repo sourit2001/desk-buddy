@@ -6,7 +6,7 @@ use std::{
     process::Command,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
+use tauri::{LogicalSize, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 use thiserror::Error;
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -201,13 +201,25 @@ async fn cursor_position() -> Result<Option<CursorPosition>, AppError> {
 
 #[tauri::command]
 async fn show_settings(app: tauri::AppHandle) -> Result<(), AppError> {
-    let window = app
-        .get_webview_window("settings")
-        .ok_or_else(|| AppError::Window("找不到设置窗口".into()))?;
+    let window = match app.get_webview_window("settings") {
+        Some(window) => window,
+        None => build_settings_window(&app)?,
+    };
 
     window.show().map_err(|error| AppError::Window(error.to_string()))?;
     window.set_focus().map_err(|error| AppError::Window(error.to_string()))?;
     Ok(())
+}
+
+fn build_settings_window(app: &tauri::AppHandle) -> Result<WebviewWindow, AppError> {
+    WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("index.html?view=settings".into()))
+        .title("Desk Buddy 设置")
+        .inner_size(780.0, 720.0)
+        .min_inner_size(620.0, 560.0)
+        .resizable(true)
+        .visible(false)
+        .build()
+        .map_err(|error| AppError::Window(error.to_string()))
 }
 
 #[tauri::command]
@@ -339,14 +351,16 @@ pub fn run() {
                 window.set_focus()?;
             }
 
-            WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("index.html?view=settings".into()))
-                .title("Desk Buddy 设置")
-                .inner_size(780.0, 720.0)
-                .min_inner_size(620.0, 560.0)
-                .resizable(true)
-                .visible(false)
-                .build()?;
+            build_settings_window(app.handle())?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() == "settings" {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             load_config,

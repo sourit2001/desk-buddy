@@ -21,6 +21,7 @@ type PetRuntimeState = {
 type PetMenu = {
   x: number;
   y: number;
+  maxHeight?: number;
 };
 
 type RoamBounds = {
@@ -254,10 +255,6 @@ function getRoamTarget(mode: RoamMode, bounds: RoamBounds): RoamTarget {
     return { x: randomBetween(bounds.right - edgeBand, bounds.right), y: randomBetween(bounds.top, bounds.bottom) };
   }
 
-  if (Math.random() < 0.72) {
-    return getRoamTarget("edges", bounds);
-  }
-
   return {
     x: randomBetween(bounds.left, bounds.right),
     y: randomBetween(bounds.top, bounds.bottom),
@@ -454,7 +451,8 @@ export function PetWindow() {
 
     const intervalMs = Math.max(4, config.window.roamIntervalSeconds) * 1000;
     const tryRoam = () => {
-      if (composerOpenRef.current || moodRef.current !== "idle" || roamingRef.current) return;
+      const currentMood = moodRef.current;
+      if (composerOpenRef.current || roamingRef.current || (currentMood !== "idle" && currentMood !== "customMotion")) return;
       roamToRandomPosition().catch(() => undefined);
     };
 
@@ -558,9 +556,26 @@ export function PetWindow() {
     };
   }, [config.animation.enabled, config.animation.expressionEffects, mood]);
 
+  useEffect(() => {
+    if (!config.animation.enabled || !config.animation.expressionEffects || mood !== "customMotion") return;
+
+    const customExpressions: PetExpression[] = ["petting", "fireworks", "happy", "shy"];
+    let index = 0;
+    setExpression(customExpressions[index]);
+
+    const interval = window.setInterval(() => {
+      index = (index + 1) % customExpressions.length;
+      setExpression(customExpressions[index]);
+    }, 1600);
+
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [config.animation.enabled, config.animation.expressionEffects, mood]);
+
   const petStyle = useMemo(
     () => ({
-      "--intensity": config.animation.enabled ? config.animation.intensity : 0,
+      "--intensity": config.animation.enabled ? config.animation.intensity * 1.45 : 0,
       "--pet-scale": isMmdMode ? activePet.mmdScale : 1,
     }) as React.CSSProperties,
     [activePet.mmdScale, config.animation.enabled, config.animation.intensity, isMmdMode],
@@ -732,12 +747,18 @@ export function PetWindow() {
 
   function toggleInteractionMenu(event: MouseEvent<HTMLButtonElement>) {
     event.stopPropagation();
+    const menuWidth = 154;
+    const menuHeight = Math.min(320, Math.max(180, window.innerHeight - 16));
+    const x = Math.max(8, window.innerWidth - menuWidth - 8);
+    const y = Math.max(8, Math.min(window.innerHeight * 0.5 - menuHeight * 0.5, window.innerHeight - menuHeight - 8));
+
     setPetMenu((current) =>
       current
         ? null
         : {
-            x: Math.max(8, window.innerWidth - 170),
-            y: 8,
+            x,
+            y,
+            maxHeight: menuHeight,
           },
     );
   }
@@ -755,8 +776,14 @@ export function PetWindow() {
     }));
     setBubble(`正在播放：${motion.name}`);
     setMood("customMotion");
-    setExpression("fireworks");
-    expressionTimeoutRef.current = window.setTimeout(() => setExpression("neutral"), 2600);
+    setExpression("petting");
+    if (isTauriRuntime() && config.window.roamEnabled) {
+      window.setTimeout(() => {
+        if (moodRef.current === "customMotion" && !roamingRef.current) {
+          roamToRandomPosition().catch(() => undefined);
+        }
+      }, 650);
+    }
   }
 
   function runInteraction(kind: "pet" | "feed" | "nap" | "play" | "chat" | "walk" | "greet" | "nod" | "kiss") {
@@ -903,7 +930,9 @@ export function PetWindow() {
     const startAt = performance.now();
 
     roamingRef.current = true;
-    setMood("wiggle");
+    const startedMood = moodRef.current;
+    const useRoamMood = startedMood === "idle";
+    if (useRoamMood) setMood("wiggle");
 
     const easeInOut = (value: number) => (value < 0.5 ? 2 * value * value : 1 - Math.pow(-2 * value + 2, 2) / 2);
 
@@ -919,19 +948,19 @@ export function PetWindow() {
         window.requestAnimationFrame((time) => {
           step(time).catch(() => {
             roamingRef.current = false;
-            setMood("idle");
+            if (useRoamMood) setMood("idle");
           });
         });
       } else {
         roamingRef.current = false;
-        setMood("idle");
+        if (useRoamMood) setMood("idle");
       }
     };
 
     window.requestAnimationFrame((time) => {
       step(time).catch(() => {
         roamingRef.current = false;
-        setMood("idle");
+        if (useRoamMood) setMood("idle");
       });
     });
   }
@@ -979,9 +1008,10 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
   }
 
   function renderExpressionLayer() {
-    if (!config.animation.expressionEffects || expression === "neutral") return null;
+    const visibleExpression = expression;
+    if (!config.animation.expressionEffects || visibleExpression === "neutral") return null;
 
-    if (expression === "fireworks") {
+    if (visibleExpression === "fireworks") {
       return (
         <div className="expression-layer fireworks" style={expressionStyle} aria-hidden="true">
           <div className="firework fw-one">
@@ -1019,7 +1049,7 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
     }
 
     return (
-      <div className={`expression-layer ${expression}`} style={expressionStyle} aria-hidden="true">
+      <div className={`expression-layer ${visibleExpression}`} style={expressionStyle} aria-hidden="true">
         <span className="mark mark-one" />
         <span className="mark mark-two" />
         <span className="mark mark-three" />
@@ -1161,7 +1191,7 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
               modelName={activePet.mmdModelName || activePet.mmdModelPath}
               modelScale={activePet.mmdScale}
               mood={mood}
-              intensity={config.animation.enabled ? config.animation.intensity : 0}
+              intensity={config.animation.enabled ? config.animation.intensity * 1.35 : 0}
               gaze={gaze}
               gazeFollowMouse={config.animation.gazeFollowMouse}
               customMotionDataUrl={activeCustomMotion?.motion.dataUrl ?? ""}
@@ -1178,6 +1208,7 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
               onCustomMotionEnd={() => {
                 setActiveCustomMotion(null);
                 setMood("idle");
+                setExpression("neutral");
               }}
             />
             {renderExpressionLayer()}
@@ -1203,7 +1234,11 @@ ${activePet.catchphrase.trim() ? `口头禅：${activePet.catchphrase.trim()}` :
       </div>
 
       {petMenu && (
-        <div className="pet-menu" style={{ left: petMenu.x, top: petMenu.y }} onClick={(event) => event.stopPropagation()}>
+        <div
+          className="pet-menu"
+          style={{ left: petMenu.x, top: petMenu.y, maxHeight: petMenu.maxHeight }}
+          onClick={(event) => event.stopPropagation()}
+        >
           <button type="button" onClick={() => runInteraction("pet")}>
             <Heart size={15} />
             摸摸
