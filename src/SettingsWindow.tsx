@@ -570,7 +570,7 @@ export function SettingsWindow() {
                   ...config,
                   llm: {
                     ...config.llm,
-                    baseUrl: "https://api.deepseek.com/v1",
+                    baseUrl: "https://api.deepseek.com",
                     model: "deepseek-v4-flash",
                   },
                 })
